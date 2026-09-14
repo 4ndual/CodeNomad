@@ -1,7 +1,13 @@
 import { batch, createSignal } from "solid-js"
 
 import { getIdleSinceForStatusTransition, type Session, type SessionRetryState, type SessionStatus, type Agent, type Provider } from "../types/session"
-import { deleteSession, loadMessages, refreshSessionCatalog } from "./session-api"
+import {
+  clearSessionCatalogState,
+  clearSessionListRequestState,
+  deleteSession,
+  loadMessages,
+  refreshSessionCatalog,
+} from "./session-api"
 import { showToastNotification } from "../lib/notifications"
 import { messageStoreBus } from "./message-v2/bus"
 import { instances, ensureYoloStateSynced } from "./instances"
@@ -548,6 +554,59 @@ function clearInstanceDraftPromptAuthority(instanceId: string) {
 function clearInstanceDraftPrompts(instanceId: string) {
   clearInstanceDraftPromptValues(instanceId)
   clearInstanceDraftPromptAuthority(instanceId)
+}
+
+function deleteInstanceBucket<T>(
+  setter: (update: (previous: Map<string, T>) => Map<string, T>) => void,
+  instanceId: string,
+): void {
+  setter((previous) => {
+    if (!previous.has(instanceId)) return previous
+    const next = new Map(previous)
+    next.delete(instanceId)
+    return next
+  })
+}
+
+/** Remove every UI session-store bucket owned by a workspace instance. */
+function clearInstanceSessionState(instanceId: string): void {
+  if (!instanceId) return
+  const prefix = `${instanceId}:`
+
+  clearSessionListRequestState(instanceId)
+  clearSessionCatalogState(instanceId)
+  clearInstanceMessageLoads(instanceId)
+  clearInstanceDraftPrompts(instanceId)
+  clearInstanceDeletedSessionAuthority(instanceId)
+  clearInstanceSessionExpansionState(instanceId)
+  clearInstanceSessionSelection(instanceId)
+
+  for (const key of generationAdmissions.keys()) {
+    if (key.startsWith(prefix)) generationAdmissions.delete(key)
+  }
+
+  deleteInstanceBucket(setSessions, instanceId)
+  deleteInstanceBucket(setAgents, instanceId)
+  deleteInstanceBucket(setProviders, instanceId)
+  deleteInstanceBucket(setSessionInfoByInstance, instanceId)
+  deleteInstanceBucket(setThreadTotalsByInstance, instanceId)
+  deleteInstanceBucket(setSessionListErrors, instanceId)
+  deleteInstanceBucket(setInstanceIndicatorCounts, instanceId)
+  deleteInstanceBucket(setSessionPagination, instanceId)
+  deleteInstanceBucket(setSessionSearch, instanceId)
+  deleteInstanceBucket(setSessionListScopes, instanceId)
+
+  setLoading((previous) => {
+    const fetchingSessions = new Map(previous.fetchingSessions)
+    const creatingSession = new Map(previous.creatingSession)
+    const deletingSession = new Map(previous.deletingSession)
+    const loadingMessages = new Map(previous.loadingMessages)
+    let changed = fetchingSessions.delete(instanceId)
+    changed = creatingSession.delete(instanceId) || changed
+    changed = deletingSession.delete(instanceId) || changed
+    changed = loadingMessages.delete(instanceId) || changed
+    return changed ? { fetchingSessions, creatingSession, deletingSession, loadingMessages } : previous
+  })
 }
 
 function pruneDraftPrompts(instanceId: string, validSessionIds: Set<string>) {
@@ -1276,6 +1335,7 @@ export {
   clearSessionDraftPrompt,
   clearInstanceDraftPromptValues,
   clearInstanceDraftPrompts,
+  clearInstanceSessionState,
   pruneDraftPrompts,
   withSession,
   setSessionPendingPermission,

@@ -14,12 +14,9 @@ import {
   fetchAgents,
   fetchProviders,
   getActiveCatalogLocation,
-  clearInstanceDraftPrompts,
+  clearInstanceSessionState,
   clearSessionListRequestState,
   clearSessionCatalogState,
-  clearInstanceDeletedSessionAuthority,
-  clearInstanceSessionExpansionState,
-  clearInstanceSessionSelection,
   resetSessionPagination,
 } from "./sessions"
 import {
@@ -1339,13 +1336,8 @@ function removeInstance(id: string, options: { authoritative?: boolean } = {}) {
   // Clean up session indexes and drafts for removed instance
   clearCacheForInstance(id)
   messageStoreBus.unregisterInstance(id)
-  clearInstanceDraftPrompts(id)
-  clearSessionListRequestState(id)
-  clearSessionCatalogState(id)
+  clearInstanceSessionState(id)
   clearInstanceAttachments(id)
-  clearInstanceDeletedSessionAuthority(id)
-  clearInstanceSessionExpansionState(id)
-  clearInstanceSessionSelection(id)
   if (removedInstance && removedOccurrence >= 0 && options.authoritative !== false) {
     publishInstanceLifecycleAuthority({
       type: "removed",
