@@ -13,7 +13,7 @@ import { useI18n } from "../lib/i18n"
 import { getLogger } from "../lib/logger"
 import { getOpencodeErrorMessage } from "../lib/opencode-api"
 import { serverApi } from "../lib/api-client"
-import { isDesktopHost, isLocalWindow } from "../lib/runtime-env"
+import { isDesktopHost, isLocalWindow, isMobilePlatform } from "../lib/runtime-env"
 import { preferences } from "../stores/preferences"
 import type { PromptDelivery, PromptInputApi, PromptInputProps, PromptInsertMode, PromptMode } from "./prompt-input/types"
 import type { Attachment } from "../types/attachment"
@@ -675,7 +675,9 @@ export default function PromptInput(props: PromptInputProps) {
 
   async function handleAttachFiles() {
     if (props.disabled) return
-    if (isDesktopHost() && isLocalWindow()) {
+    // Phones have no server-side path to their camera roll; the browser file
+    // input is the only picker that can hand those bytes to the attachment flow.
+    if (isMobilePlatform() || (isDesktopHost() && isLocalWindow())) {
       fileInputRef?.click()
       return
     }
@@ -895,13 +897,6 @@ export default function PromptInput(props: PromptInputProps) {
         onSelect: () => toggleConversationMode(props.instanceId),
       })
     }
-    items.push({
-      key: "attach",
-      label: t("promptInput.attachFiles.title"),
-      icon: <Paperclip class="h-4 w-4" aria-hidden="true" />,
-      disabled: Boolean(props.disabled),
-      onSelect: handleAttachFiles,
-    })
     if (hasHistory()) {
       items.push({
         key: "history-previous",
@@ -1067,12 +1062,23 @@ export default function PromptInput(props: PromptInputProps) {
           ref={fileInputRef}
           type="file"
           multiple
+          accept={isMobilePlatform() ? "image/*" : undefined}
           class="sr-only"
           tabindex="-1"
           disabled={props.disabled}
           onChange={handleFileInputChange}
         />
         <div class="prompt-actions-menu">
+          <button
+            type="button"
+            class="prompt-attach-button"
+            onClick={() => void handleAttachFiles()}
+            disabled={props.disabled}
+            aria-label={t("promptInput.attachFiles.ariaLabel")}
+            title={t("promptInput.attachFiles.title")}
+          >
+            <Paperclip class="h-4 w-4" aria-hidden="true" />
+          </button>
           <ActionOverflowMenu
             items={promptActionMenuItems()}
             label={t("messageItem.actions.more")}

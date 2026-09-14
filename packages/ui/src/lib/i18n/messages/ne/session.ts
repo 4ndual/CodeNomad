@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "रद्द गर्नुहोस्",
 
   "sessionList.header.title": "सत्रहरू",
+  "sessionList.scope.label": "सत्रको दायरा",
+  "sessionList.scope.all": "सबै",
+  "sessionList.scope.current": "हालको फोल्डर",
+  "sessionList.scope.unknown": "अज्ञात फोल्डर",
   "sessionList.session.untitled": "शीर्षक नभएको सत्र",
   "sessionList.status.working": "काम गर्दै",
   "sessionList.status.compacting": "संक्षिप्त गर्दै",

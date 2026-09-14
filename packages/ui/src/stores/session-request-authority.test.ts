@@ -25,6 +25,7 @@ import {
   sessions,
   setSessions,
   setActiveSession,
+  setSessionListScope,
 } from "./session-state.ts"
 
 function deferred<T>() {
@@ -58,8 +59,8 @@ function apiMessage(id: string) {
 
 function setup(instanceId: string) {
   const client = { session: { active: async () => ({}) } } as any
-  ;(sdkManager as any).clients.set(`${instanceId}:/workspaces/${instanceId}/instance`, client)
   addInstance({ id: instanceId, folder: "/work", port: 0, pid: 0, proxyPath: "", status: "ready", client })
+  setSessionListScope(instanceId, "current")
   return {
     client,
     cleanup() {
@@ -1540,8 +1541,8 @@ describe("session request authority", () => {
       assert.deepEqual(requests[2], { cursor: "inventory-page-2", limit: 200 })
 
       await loadMoreSessions(instanceId)
-      assert.deepEqual(requests[3], { cursor: "root-page-2", limit: 200 })
-      assert.equal(requests.filter((request) => request.cursor).every((request) => Object.keys(request).sort().join(",") === "cursor,limit"), true)
+      assert.deepEqual(requests[3], { cursor: "root-page-2", directory: "/work", limit: 200 })
+      assert.equal(requests.filter((request) => request.cursor).every((request) => !("project" in request) && (!("directory" in request) || request.directory === "/work")), true)
       assert.equal(requests.length, 4)
       assert.equal(sessions().get(instanceId)?.get("later")?.status, "working")
       assert.equal(sessions().get(instanceId)?.get("later")?.runtimeStatusKnown, true)
@@ -1597,7 +1598,7 @@ describe("session request authority", () => {
       assert.equal(requests.filter((request) => !request.cursor).every((request) => request.directory === "/work"), true)
       assert.equal(requests.every((request) => !("project" in request)), true)
       assert.equal(requests.filter((request) => request.cursor)
-        .every((request) => Object.keys(request).sort().join(",") === "cursor,limit"), true)
+        .every((request) => !("project" in request) && (!("directory" in request) || request.directory === "/work")), true)
     } finally {
       cleanup()
     }

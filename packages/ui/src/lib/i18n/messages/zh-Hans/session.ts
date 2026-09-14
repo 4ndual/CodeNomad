@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "取消",
 
   "sessionList.header.title": "会话",
+  "sessionList.scope.label": "会话范围",
+  "sessionList.scope.all": "全部",
+  "sessionList.scope.current": "当前文件夹",
+  "sessionList.scope.unknown": "未知文件夹",
   "sessionList.session.untitled": "未命名",
   "sessionList.status.working": "工作中",
   "sessionList.status.compacting": "压缩中",

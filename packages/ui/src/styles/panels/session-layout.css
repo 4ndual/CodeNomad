@@ -509,6 +509,45 @@
   overscroll-behavior-y: contain;
 }
 
+.session-list-scope-switch {
+  @apply flex border-b;
+  border-color: var(--border-base);
+}
+
+.session-list-scope-button {
+  @apply flex-1 px-3 py-2 text-xs font-medium transition-colors;
+  border: 0;
+  border-inline-end: 1px solid var(--border-base);
+  border-radius: 0;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+}
+
+.session-list-scope-button:last-child {
+  border-inline-end: 0;
+}
+
+.session-list-scope-button:hover,
+.session-list-scope-button[aria-selected="true"] {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.session-list-scope-button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+}
+
+.session-list-folder-heading {
+  @apply border-b px-3 py-2 text-xs font-semibold;
+  border-color: var(--border-base);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .session-list-item {
   @apply border-b;
   border-color: var(--border-base);

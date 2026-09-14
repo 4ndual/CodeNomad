@@ -40,6 +40,7 @@ import {
   getSessionSearchQuery,
   getSessionSearchThreads,
   getSessionThreads,
+  getSessionListScope,
   getThreadTotals,
   getSessions,
   getVisibleSessionIds,
@@ -56,6 +57,7 @@ import {
   setActiveSessionFromList,
   setSessionDraftPrompt,
   setSessionExpanded,
+  setSessionListScope,
   setSessionStatus,
   toggleSessionExpanded,
   clearSessionSearch,
@@ -67,6 +69,7 @@ import {
   clearInstanceDeletedSessionAuthority,
   clearInstanceSessionExpansionState,
 } from "./session-state"
+import type { SessionListScope } from "./session-state"
 import { isSessionBusy } from "./session-status"
 
 import { getDefaultModel } from "./session-models"
@@ -193,6 +196,7 @@ export {
   getSessionSearchQuery,
   getSessionSearchThreads,
   getSessionThreads,
+  getSessionListScope,
   getThreadTotals,
   getSessions,
   getVisibleSessionIds,
@@ -214,6 +218,7 @@ export {
   setActiveSessionFromList,
   setSessionDraftPrompt,
   setSessionExpanded,
+  setSessionListScope,
   setSessionStatus,
   toggleSessionExpanded,
   updateSessionAgent,
@@ -227,4 +232,6 @@ export {
   clearInstanceDeletedSessionAuthority,
   clearInstanceSessionExpansionState,
 }
+
+export type { SessionListScope }
 export type { SessionInfo }

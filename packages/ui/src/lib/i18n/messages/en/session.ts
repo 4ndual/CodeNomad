@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "Cancel",
 
   "sessionList.header.title": "Sessions",
+  "sessionList.scope.label": "Session scope",
+  "sessionList.scope.all": "All",
+  "sessionList.scope.current": "Current folder",
+  "sessionList.scope.unknown": "Unknown folder",
   "sessionList.session.untitled": "Untitled",
   "sessionList.status.working": "Working",
   "sessionList.status.compacting": "Compacting",

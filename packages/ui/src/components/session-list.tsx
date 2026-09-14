@@ -1,7 +1,7 @@
 import { Component, Show, createSignal, createMemo, createEffect, JSX, on, onCleanup } from "solid-js"
 import { Virtualizer, type VirtualizerHandle } from "virtua/solid"
 import type { SessionStatus } from "../types/session"
-import type { SessionThread } from "../stores/session-state"
+import { type SessionThread, type SessionListScope, getSessionListScope, setSessionListScope } from "../stores/session-state"
 import { getRetrySeconds, getSessionIdleFadeClass, getSessionRetry, getSessionStatus, shouldShowSessionStatus } from "../stores/session-status"
 import { Bot, User, Copy, Trash2, Pencil, ShieldAlert, ChevronRight, Search, Square, CheckSquare, MinusSquare, Split, RotateCw } from "lucide-solid"
 import KeyboardHint from "./keyboard-hint"
@@ -33,12 +33,17 @@ import {
   isSessionSearchLoading,
 } from "../stores/sessions"
 import { getGitRepoStatus, getWorktreeSlugForParentSession } from "../stores/worktrees"
-import { collectSessionThreadIds, findSessionThread, flattenVisibleSessionThreads, sortSessionIdsDeepestFirst } from "../stores/session-tree"
+import { collectSessionThreadIds, findSessionThread, flattenVisibleSessionThreads, sortSessionIdsDeepestFirst, type VisibleSessionRow } from "../stores/session-tree"
 import { getLogger } from "../lib/logger"
 import { copyToClipboard } from "../lib/clipboard"
 import { useConfig } from "../stores/preferences"
 import { isSessionListViewportAttached, shouldRenderSessionRows } from "./session-list-visibility"
 const log = getLogger("session")
+
+function normalizeSessionDirectory(directory: string | undefined): string {
+  const normalized = (directory ?? "").trim().replace(/[\\/]+/g, "/")
+  return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized
+}
 
 
 
@@ -64,12 +69,27 @@ const SessionList: Component<SessionListProps> = (props) => {
   const { preferences } = useConfig()
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string; label: string } | null>(null)
   const [isRenaming, setIsRenaming] = createSignal(false)
+  const [scope, setScope] = createSignal<SessionListScope>(getSessionListScope(props.instanceId))
 
   const [filterQuery, setFilterQuery] = createSignal("")
   const normalizedQuery = createMemo(() => (props.enableFilterBar ? filterQuery().trim().toLowerCase() : ""))
 
   const [selectedSessionIds, setSelectedSessionIds] = createSignal<Set<string>>(new Set())
   const [reloadingSessionIds, setReloadingSessionIds] = createSignal<Set<string>>(new Set())
+  createEffect(on(scope, (nextScope) => {
+    setSessionListScope(props.instanceId, nextScope)
+    setFilterQuery("")
+    setSelectedSessionIds(new Set<string>())
+    clearSessionSearch(props.instanceId)
+    void fetchSessions(props.instanceId, { reset: true, scope: nextScope }).catch((error) => {
+      log.error("Failed to refresh sessions after changing scope:", error)
+    })
+  }))
+
+  const changeScope = (nextScope: SessionListScope) => {
+    if (nextScope === scope()) return
+    setScope(nextScope)
+  }
   const [now, setNow] = createSignal(Date.now())
   const [listEl, setListEl] = createSignal<HTMLDivElement>()
   const [listViewportAttached, setListViewportAttached] = createSignal(false)
@@ -107,14 +127,11 @@ const SessionList: Component<SessionListProps> = (props) => {
     if (normalizedQuery()) return false
     return getSessionHasMore(props.instanceId)
   })
-
-  const isFetchingSessions = createMemo(() => {
-    return loading().fetchingSessions.get(props.instanceId) ?? false
-  })
+  const isFetchingSessions = createMemo(() => loading().fetchingSessions.get(props.instanceId) ?? false)
   const sessionListError = createMemo(() => getSessionListError(props.instanceId))
 
   const handleRetrySessions = () => {
-    void fetchSessions(props.instanceId, { reset: true }).catch((error) => {
+    void fetchSessions(props.instanceId, { reset: true, scope: scope() }).catch((error) => {
       log.error("Failed to retry session list:", error)
     })
   }
@@ -164,14 +181,8 @@ const SessionList: Component<SessionListProps> = (props) => {
         .catch((error) => {
           log.error("Failed to search sessions:", error)
         })
-    }, 150)
-
-    onCleanup(() => {
-      if (searchDebounceTimer) {
-        clearTimeout(searchDebounceTimer)
-      }
+      }, 150)
     })
-  })
 
   const normalizeSessionLabel = (sessionId: string) => {
     const session = sessionStateSessions().get(props.instanceId)?.get(sessionId)
@@ -180,9 +191,10 @@ const SessionList: Component<SessionListProps> = (props) => {
   }
 
   const sessionMatchesQuery = (sessionId: string, query: string) => {
-    if (!query) return true
+    const session = sessionStateSessions().get(props.instanceId)?.get(sessionId)
     const label = normalizeSessionLabel(sessionId).toLowerCase()
     if (label.includes(query)) return true
+    if (normalizeSessionDirectory(session?.location?.directory).toLowerCase().includes(query)) return true
     return sessionId.toLowerCase().includes(query)
   }
 
@@ -203,7 +215,13 @@ const SessionList: Component<SessionListProps> = (props) => {
     const searchQuery = getSessionSearchQuery(props.instanceId)
     const searchLoading = isSessionSearchLoading(props.instanceId)
     if (searchQuery === query && !searchLoading) {
-      return getSessionSearchThreads(props.instanceId)
+      const merged = new Map<string, SessionThread>()
+      for (const thread of getSessionSearchThreads(props.instanceId)) merged.set(thread.session.id, thread)
+      for (const thread of props.threads) {
+        const filtered = filterThreadTree(thread, query)
+        if (filtered !== null) merged.set(filtered.session.id, filtered)
+      }
+      return Array.from(merged.values())
     }
 
     const result: SessionThread[] = []
@@ -216,19 +234,50 @@ const SessionList: Component<SessionListProps> = (props) => {
 
   const visibleProjection = createMemo(() => {
     const expandAll = Boolean(normalizedQuery())
-    const rows = flattenVisibleSessionThreads(
-      filteredThreads(),
-      (sessionId) => expandAll || isSessionExpanded(props.instanceId, sessionId),
-    )
+    const rowsById = new Map<string, VisibleSessionRow>()
+    const folderRows = new Map<string, string>()
     const ids: string[] = []
-    const rowsById = new Map<string, (typeof rows)[number]>()
+
+    const appendThreads = (threads: SessionThread[]) => {
+      const rows = flattenVisibleSessionThreads(
+        threads,
+        (sessionId) => expandAll || isSessionExpanded(props.instanceId, sessionId),
+      )
+      for (const row of rows) {
+        ids.push(row.sessionId)
+        rowsById.set(row.sessionId, row)
+      }
+    }
+
+    if (scope() !== "all") {
+      appendThreads(filteredThreads())
+    } else {
+      const groups = new Map<string, SessionThread[]>()
+      for (const thread of filteredThreads()) {
+        const directory = normalizeSessionDirectory(thread.session.location?.directory) || t("sessionList.scope.unknown")
+        const group = groups.get(directory)
+        if (group) group.push(thread)
+        else groups.set(directory, [thread])
+      }
+      const sessionRecency = (thread: SessionThread) => Number(thread.session.time.updated ?? thread.session.time.created ?? 0)
+      for (const threads of groups.values()) {
+        threads.sort((left, right) => sessionRecency(right) - sessionRecency(left) || right.session.id.localeCompare(left.session.id))
+      }
+      const orderedGroups = Array.from(groups.entries()).sort(([leftDirectory, leftThreads], [rightDirectory, rightThreads]) => {
+        const recencyDifference = sessionRecency(rightThreads[0]!) - sessionRecency(leftThreads[0]!)
+        return recencyDifference || leftDirectory.localeCompare(rightDirectory)
+      })
+      for (const [directory, threads] of orderedGroups) {
+        const groupId = `folder:${directory}`
+        ids.push(groupId)
+        folderRows.set(groupId, directory)
+        appendThreads(threads)
+      }
+    }
+
     const indexById = new Map<string, number>()
-    rows.forEach((row, index) => {
-      ids.push(row.sessionId)
-      rowsById.set(row.sessionId, row)
-      indexById.set(row.sessionId, index)
-    })
-    return { ids, rowsById, indexById }
+    ids.forEach((id, index) => indexById.set(id, index))
+    return { ids, rowsById, indexById, folderRows }
   })
   const keptMountedIndexes = createMemo(() => {
     const sessionId = focusedSessionId()
@@ -621,6 +670,12 @@ const SessionList: Component<SessionListProps> = (props) => {
         "--session-connector-offset": `${indent - 0.875}rem`,
       }
     }
+    const activateFromKeyboard = (event: KeyboardEvent, action: () => void) => {
+      if (event.key !== "Enter" && event.key !== " ") return
+      event.preventDefault()
+      event.stopPropagation()
+      action()
+    }
 
     return (
       <div class={`session-list-item group ${rowProps.isLastRow ? "session-list-item-last" : ""}`}>
@@ -671,6 +726,7 @@ const SessionList: Component<SessionListProps> = (props) => {
                     rowProps.onToggleExpand?.()
                   }}
                   role="button"
+                  onKeyDown={(event) => activateFromKeyboard(event, () => rowProps.onToggleExpand?.())}
                   tabIndex={0}
                   aria-expanded={Boolean(rowProps.expanded)}
                   aria-label={
@@ -701,6 +757,7 @@ const SessionList: Component<SessionListProps> = (props) => {
             <div class="session-item-actions">
               <span
                 class={`session-item-close opacity-80 hover:opacity-100 ${isActive() ? "hover:bg-white/20" : "hover:bg-surface-hover"}`}
+                onKeyDown={(event) => activateFromKeyboard(event, () => void copySessionId(event as unknown as MouseEvent, sessionId()))}
                 onClick={(event) => copySessionId(event, sessionId())}
                 role="button"
                 tabIndex={0}
@@ -710,6 +767,7 @@ const SessionList: Component<SessionListProps> = (props) => {
                 <Copy class="w-3 h-3" />
               </span>
               <span
+                onKeyDown={(event) => activateFromKeyboard(event, () => void handleReloadSession(event as unknown as MouseEvent, sessionId()))}
                 class={`session-item-close opacity-80 hover:opacity-100 ${isActive() ? "hover:bg-white/20" : "hover:bg-surface-hover"}`}
                 onClick={(event) => handleReloadSession(event, sessionId())}
                 role="button"
@@ -730,6 +788,7 @@ const SessionList: Component<SessionListProps> = (props) => {
                   event.stopPropagation()
                   openRenameDialog(sessionId())
                 }}
+                onKeyDown={(event) => activateFromKeyboard(event, () => openRenameDialog(sessionId()))}
                 role="button"
                 tabIndex={0}
                 aria-label={t("sessionList.actions.rename.ariaLabel")}
@@ -741,6 +800,7 @@ const SessionList: Component<SessionListProps> = (props) => {
                 class={`session-item-close opacity-80 hover:opacity-100 ${isActive() ? "hover:bg-white/20" : "hover:bg-surface-hover"}`}
                 onClick={(event) => handleDeleteSession(event, sessionId())}
                 role="button"
+                onKeyDown={(event) => activateFromKeyboard(event, () => void handleDeleteSession(event as unknown as MouseEvent, sessionId()))}
                 tabIndex={0}
                 aria-label={t("sessionList.actions.delete.ariaLabel")}
                 title={t("sessionList.actions.delete.title")}
@@ -878,6 +938,28 @@ const SessionList: Component<SessionListProps> = (props) => {
            setFocusedSessionId(undefined)
          }}
        >
+        <div class="session-list-scope-switch" role="tablist" aria-label={t("sessionList.scope.label")}>
+          <button
+            type="button"
+            class="session-list-scope-button"
+            role="tab"
+            aria-selected={scope() === "all"}
+            aria-pressed={scope() === "all"}
+            onClick={() => changeScope("all")}
+          >
+            {t("sessionList.scope.all")}
+          </button>
+          <button
+            type="button"
+            class="session-list-scope-button"
+            role="tab"
+            aria-selected={scope() === "current"}
+            aria-pressed={scope() === "current"}
+            onClick={() => changeScope("current")}
+          >
+            {t("sessionList.scope.current")}
+          </button>
+        </div>
 
           <Show when={sessionListError()}>
             {(error) => (
@@ -910,22 +992,37 @@ const SessionList: Component<SessionListProps> = (props) => {
                  bufferSize={400}
                  keepMounted={keptMountedIndexes()}
                >
-                 {(sessionId, index) => {
-                   const row = createMemo(() => visibleProjection().rowsById.get(sessionId))
-                   return (
-                     <Show when={Boolean(row())}>
-                       <SessionRow
-                         session={row()!.thread.session}
-                         depth={row()!.depth}
-                         hasChildren={row()!.hasChildren}
-                         expanded={row()!.expanded}
-                         onToggleExpand={() => toggleSessionExpanded(props.instanceId, sessionId)}
-                         isLastChild={row()!.isLastChild}
-                         isLastRow={index() === visibleProjection().ids.length - 1 && !hasMore() && !isFetchingSessions()}
-                       />
-                     </Show>
-                   )
-                 }}
+                {(sessionId, index) => {
+                  const projection = visibleProjection()
+                  const directory = projection.folderRows.get(sessionId)
+                  if (directory !== undefined) {
+                    return (
+                      <div
+                        class="session-list-folder-heading"
+                        title={directory}
+                        aria-label={directory}
+                        role="heading"
+                        aria-level="3"
+                      >
+                        {directory}
+                      </div>
+                    )
+                  }
+                  const row = projection.rowsById.get(sessionId)
+                  return (
+                    <Show when={Boolean(row)}>
+                      <SessionRow
+                        session={row!.thread.session}
+                        depth={row!.depth}
+                        hasChildren={row!.hasChildren}
+                        expanded={row!.expanded}
+                        onToggleExpand={() => toggleSessionExpanded(props.instanceId, sessionId)}
+                        isLastChild={row!.isLastChild}
+                        isLastRow={index() === projection.ids.length - 1 && !hasMore() && !isFetchingSessions()}
+                      />
+                    </Show>
+                  )
+                }}
                </Virtualizer>
              </Show>
              <Show when={hasMore() || isFetchingSessions()}>

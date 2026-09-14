@@ -97,6 +97,25 @@ const [instanceIndicatorCounts, setInstanceIndicatorCounts] = createSignal<Map<s
 
 const SESSION_PAGE_SIZE = 200
 
+const [sessionPagination, setSessionPagination] = createSignal<Map<string, SessionPaginationState>>(new Map())
+const [sessionSearch, setSessionSearch] = createSignal<Map<string, SessionSearchState>>(new Map())
+
+export type SessionListScope = "all" | "current"
+
+const [sessionListScopes, setSessionListScopes] = createSignal<Map<string, SessionListScope>>(new Map())
+
+function getSessionListScope(instanceId: string): SessionListScope {
+  return sessionListScopes().get(instanceId) ?? "all"
+}
+
+function setSessionListScope(instanceId: string, scope: SessionListScope): void {
+  setSessionListScopes((previous) => {
+    const next = new Map(previous)
+    next.set(instanceId, scope)
+    return next
+  })
+}
+
 type SessionSearchState = {
   query: string
   ids: string[]
@@ -104,8 +123,6 @@ type SessionSearchState = {
   requestId: number
 }
 
-const [sessionPagination, setSessionPagination] = createSignal<Map<string, SessionPaginationState>>(new Map())
-const [sessionSearch, setSessionSearch] = createSignal<Map<string, SessionSearchState>>(new Map())
 
 function updateSessionPagination(
   instanceId: string,
@@ -1305,6 +1322,8 @@ export {
   cleanupBlankSessions,
   SESSION_PAGE_SIZE,
   sessionPagination,
+  getSessionListScope,
+  setSessionListScope,
   sessionSearch,
   getSessionListIds,
   getSessionNextCursor,

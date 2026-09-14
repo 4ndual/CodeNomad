@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "Отмена",
 
   "sessionList.header.title": "Сессии",
+  "sessionList.scope.label": "Область сессий",
+  "sessionList.scope.all": "Все",
+  "sessionList.scope.current": "Текущая папка",
+  "sessionList.scope.unknown": "Неизвестная папка",
   "sessionList.session.untitled": "Без названия",
   "sessionList.status.working": "Работает",
   "sessionList.status.compacting": "Компактация",

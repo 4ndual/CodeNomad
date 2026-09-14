@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "ביטול",
 
   "sessionList.header.title": "סשנים",
+  "sessionList.scope.label": "היקף הסשנים",
+  "sessionList.scope.all": "הכול",
+  "sessionList.scope.current": "התיקייה הנוכחית",
+  "sessionList.scope.unknown": "תיקייה לא ידועה",
   "sessionList.session.untitled": "ללא שם",
   "sessionList.status.working": "עובד",
   "sessionList.status.compacting": "מסכם",

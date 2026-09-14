@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "キャンセル",
 
   "sessionList.header.title": "セッション",
+  "sessionList.scope.label": "セッションの範囲",
+  "sessionList.scope.all": "すべて",
+  "sessionList.scope.current": "現在のフォルダー",
+  "sessionList.scope.unknown": "不明なフォルダー",
   "sessionList.session.untitled": "無題",
   "sessionList.status.working": "作業中",
   "sessionList.status.compacting": "圧縮中",

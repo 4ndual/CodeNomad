@@ -1,7 +1,7 @@
 import path from "path"
 import { spawnSync } from "child_process"
 import { randomUUID } from "node:crypto"
-import { realpath } from "node:fs/promises"
+import { mkdir, realpath } from "node:fs/promises"
 import type { Endpoint } from "@opencode-ai/client/service"
 import type { LocationGetOutput, LocationRef, OpenCodeClient, OpenCodeEvent } from "@opencode-ai/client"
 import { EventBus } from "../events/bus"
@@ -398,6 +398,16 @@ export class WorkspaceManager {
     const launchDeadlineAt = this.now() + launchTimeoutMs
     try {
       const submittedPath = path.isAbsolute(folder) ? path.normalize(folder) : path.resolve(this.options.rootDir, folder)
+      const relativeToRoot = path.relative(path.resolve(this.options.rootDir), path.resolve(submittedPath))
+      if (relativeToRoot === ".." || relativeToRoot.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToRoot)) {
+        throw new Error("Workspace path must be inside the configured workspace root")
+      }
+      await this.withLaunchDeadline(
+        mkdir(submittedPath, { recursive: true }),
+        undefined,
+        launchDeadlineAt,
+        launchTimeoutMs,
+      )
       const workspacePath = await this.withLaunchDeadline(
         realpath(submittedPath).then((resolved) => path.normalize(resolved), () => submittedPath),
         undefined,

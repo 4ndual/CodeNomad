@@ -108,7 +108,7 @@ const SessionSidebar: Component<SessionSidebarProps> = (props) => (
         </div>
       </div>
 
-      <div class="session-sidebar flex flex-col flex-1 min-h-0">
+      <div class="session-sidebar flex flex-col flex-1 min-h-0" role="region" aria-label={props.t("sessionList.header.title")}>
         <Show when={shouldMountSessionList(props.drawerState())}>
           <SessionList
             instanceId={props.instanceId}

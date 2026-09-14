@@ -11,6 +11,10 @@ export const sessionMessages = {
   "sessionPicker.actions.cancel": "Cancelar",
 
   "sessionList.header.title": "Sesiones",
+  "sessionList.scope.label": "Ámbito de sesiones",
+  "sessionList.scope.all": "Todas",
+  "sessionList.scope.current": "Carpeta actual",
+  "sessionList.scope.unknown": "Carpeta desconocida",
   "sessionList.session.untitled": "Sin título",
   "sessionList.status.working": "Trabajando",
   "sessionList.status.compacting": "Compactando",

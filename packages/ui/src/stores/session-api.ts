@@ -52,6 +52,8 @@ import {
   setSessionExpanded,
   getSessionNextCursor,
   getSessionListIds,
+  getSessionListScope,
+  type SessionListScope,
 } from "./session-state"
 import { deleteSessionAttachments } from "./attachments"
 import { DEFAULT_MODEL_OUTPUT_LIMIT, getActiveCatalogLocation, getDefaultModel, isModelValid } from "./session-models"
@@ -221,6 +223,7 @@ function clearSessionCatalogState(instanceId: string): void {
 }
 
 type V2SessionListOptions = {
+  scope?: SessionListScope
   directory?: string
   search?: string
   cursor?: string
@@ -263,12 +266,15 @@ async function fetchV2Sessions(
   signal?: AbortSignal,
 ): Promise<ProjectSessionListResponse> {
   const client = getRootClient(instanceId)
-  const project = options.project ?? (options.directory ? undefined : getInstanceMetadata(instanceId)?.project?.id)
+  const scope = options.scope ?? "current"
+  const project = scope === "all"
+    ? "global"
+    : options.project ?? (options.directory ? undefined : getInstanceMetadata(instanceId)?.project?.id)
   const scopedProject = project === "global" ? undefined : project
-  const directory = options.directory ?? instances().get(instanceId)?.folder
+  const directory = scope === "all" ? undefined : options.directory ?? instances().get(instanceId)?.folder
   const listOptions: V2SessionListOptions = options.cursor
-    ? { cursor: options.cursor }
-    : { ...options, project: scopedProject, directory, order: options.order ?? "desc" }
+    ? { cursor: options.cursor, ...(scope === "current" && directory && !scopedProject ? { directory } : {}) }
+    : { ...options, scope: undefined, project: scope === "all" ? "global" : scopedProject, directory, order: options.order ?? "desc" }
   if (scopedProject) delete listOptions.directory
 
   const response = await client.session.list(
@@ -424,6 +430,7 @@ async function ensureV2ParentChainsLoaded(
 }
 
 async function fetchSessions(instanceId: string, options?: {
+  scope?: SessionListScope
   reset?: boolean
   strictStatus?: boolean
   registerInvalidation?: (invalidate: () => void) => void
@@ -450,13 +457,20 @@ async function fetchSessions(instanceId: string, options?: {
     return next
   })
   setSessionListError(instanceId, null)
-
   try {
-    const sessionListOptions = { ...(instance.folder ? { directory: instance.folder } : {}), parentID: null as null, order: "desc" as const }
+    const scope = options?.scope ?? getSessionListScope(instanceId)
+    const sessionListOptions = scope === "all"
+      ? { scope, parentID: null as null, order: "desc" as const }
+      : { scope, ...(instance.folder ? { directory: instance.folder } : {}), parentID: null as null, order: "desc" as const }
     const existingSessions = new Map(sessions().get(instanceId) ?? new Map<string, Session>())
     const existingCatalogIds = new Set(getSessionListIds(instanceId))
 
-    log.info("session.list", { instanceId, limit: PROJECT_SESSION_LIST_LIMIT, directory: sessionListOptions.directory })
+    log.info("session.list", {
+      instanceId,
+      limit: PROJECT_SESSION_LIST_LIMIT,
+      directory: "directory" in sessionListOptions ? sessionListOptions.directory : undefined,
+      scope,
+    })
     const [response, activeSessions] = await Promise.all([
       fetchV2Sessions(instanceId, sessionListOptions, options?.signal),
       getRootClient(instanceId).session.active(options?.signal ? { signal: options.signal } : undefined).catch((error) => {
@@ -469,7 +483,7 @@ async function fetchSessions(instanceId: string, options?: {
       return
     }
     const rootApiSessions = getV2SessionItems(response)
-    const hasProjectInventory = Boolean(getInstanceMetadata(instanceId)?.project?.id)
+    const hasProjectInventory = scope === "current" && Boolean(getInstanceMetadata(instanceId)?.project?.id)
     if (hasProjectInventory) {
       const deletedSessionIds = getAuthoritativelyDeletedSessionIdsForInstance(instanceId)
       setSessions((prev) => {
@@ -499,12 +513,14 @@ async function fetchSessions(instanceId: string, options?: {
     }
     let inventory: SDKSession[] = []
     let inventoryComplete = false
-    try {
-      inventory = await fetchCompleteProjectSessionInventory(instanceId, options?.signal, isCurrent)
-      inventoryComplete = hasProjectInventory && response.complete
-    } catch (error) {
-      if (options?.signal?.aborted) throw error
-      log.warn("Failed to enrich the session list with project descendants", { instanceId, error })
+    if (hasProjectInventory) {
+      try {
+        inventory = await fetchCompleteProjectSessionInventory(instanceId, options?.signal, isCurrent)
+        inventoryComplete = response.complete
+      } catch (error) {
+        if (options?.signal?.aborted) throw error
+        log.warn("Failed to enrich the session list with project descendants", { instanceId, error })
+      }
     }
     if (!isCurrent()) return
     const rootIdsFromPage = new Set(rootApiSessions.map((session) => session.id))
@@ -647,8 +663,9 @@ async function loadNextSessionPage(instanceId: string): Promise<void> {
   const isCurrent = () => instances().get(instanceId)?.client === client
     && sessionListRequestIds.get(instanceId) === listRequestId
     && generationCurrent()
+  const scope = getSessionListScope(instanceId)
   const [response, activeSessions] = await Promise.all([
-    fetchV2Sessions(instanceId, { cursor }),
+    fetchV2Sessions(instanceId, { cursor, scope }),
     getRootClient(instanceId).session.active().catch((error) => {
       log.warn("Failed to refresh active sessions", { instanceId, error })
       return null
@@ -699,11 +716,11 @@ async function searchSessions(instanceId: string, query: string): Promise<void> 
     && generationCurrent()
 
   try {
-    log.info("v2.session.search", { instanceId, query: trimmedQuery, directory: instance.folder })
-    const response = await fetchV2Sessions(instanceId, {
-      search: trimmedQuery,
-      directory: instance.folder,
-    })
+    const scope = getSessionListScope(instanceId)
+    log.info("v2.session.search", { instanceId, query: trimmedQuery, directory: scope === "current" ? instance.folder : undefined, scope })
+    const response = await fetchV2Sessions(instanceId, scope === "all"
+      ? { scope, search: trimmedQuery }
+      : { scope, search: trimmedQuery, directory: instance.folder })
     if (!isCurrent()) return
 
     const searchResults = getV2SessionItems(response)

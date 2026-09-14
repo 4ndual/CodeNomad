@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { mkdtemp, rm, stat } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import { describe, it } from "node:test"
 import type { LocationRef, OpenCodeClient, OpenCodeEvent } from "@opencode-ai/client"
@@ -119,6 +121,30 @@ function createHarness(service = new ControlledSharedService(), overrides: Recor
 }
 
 describe("workspace manager shared service lifecycle", () => {
+  it("creates a missing workspace directory inside the configured root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "codenomad-workspaces-"))
+    try {
+      const { manager } = createHarness(new ControlledSharedService(), { rootDir: root })
+      const target = path.join(root, "sample")
+      const created = await manager.create(target)
+      assert.equal(created.workspace.path, target)
+      assert.equal((await stat(target)).isDirectory(), true)
+      await manager.shutdown()
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it("rejects creating a workspace outside the configured root", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "codenomad-workspaces-"))
+    try {
+      const { manager } = createHarness(new ControlledSharedService(), { rootDir: root })
+      await assert.rejects(manager.create(path.join(root, "..", "outside")), /configured workspace root/)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("validates native workspace identity against an owned directory", async () => {
     const service = new ControlledSharedService()
     service.debugLocations = [
