@@ -7,6 +7,10 @@ import { InstanceStreamStatus } from "../api-types"
 const RECONNECT_DELAY_MS = 1000
 const DIRECTORY_OWNER_CACHE_MS = 2000
 const SESSION_DIRECTORY_CACHE_MS = 2000
+export const DIRECTORY_OWNER_CACHE_MAX_ENTRIES = 512
+export const SESSION_DIRECTORY_CACHE_MAX_ENTRIES = 2_048
+export const PTY_DIRECTORY_CACHE_MAX_ENTRIES = 512
+export const SHELL_DIRECTORY_CACHE_MAX_ENTRIES = 512
 const GLOBAL_EVENT_TYPES = new Set([
   "agent.updated",
   "catalog.updated",
@@ -126,13 +130,13 @@ export class InstanceEventBridge {
       return
     }
     if (sessionId) {
-      this.sessionDirectories.set(sessionId, {
+      this.setBounded(this.sessionDirectories, sessionId, {
         expiresAt: Date.now() + SESSION_DIRECTORY_CACHE_MS,
         directory: Promise.resolve(directory),
-      })
+      }, SESSION_DIRECTORY_CACHE_MAX_ENTRIES)
     }
-    if (ptyId) this.ptyDirectories.set(ptyId, directory)
-    if (shellId) this.shellDirectories.set(shellId, directory)
+    if (ptyId) this.setBounded(this.ptyDirectories, ptyId, directory, PTY_DIRECTORY_CACHE_MAX_ENTRIES)
+    if (shellId) this.setBounded(this.shellDirectories, shellId, directory, SHELL_DIRECTORY_CACHE_MAX_ENTRIES)
 
     const instanceIds = await this.resolveDirectoryOwners(directory)
     if (instanceIds.length === 0) {
@@ -191,7 +195,11 @@ export class InstanceEventBridge {
   private resolveSessionDirectory(sessionId: string): Promise<string | undefined> {
     const now = Date.now()
     const cached = this.sessionDirectories.get(sessionId)
-    if (cached && cached.expiresAt > now) return cached.directory
+    if (cached && cached.expiresAt > now) {
+      this.touch(this.sessionDirectories, sessionId, cached)
+      return cached.directory
+    }
+    if (cached) this.sessionDirectories.delete(sessionId)
 
     const resolve = () => this.options.workspaceManager.getSharedServiceClient()
       .then((client) => client.session.get({ sessionID: sessionId }))
@@ -204,7 +212,7 @@ export class InstanceEventBridge {
       })
     })
     const entry = { expiresAt: Number.POSITIVE_INFINITY, directory }
-    this.sessionDirectories.set(sessionId, entry)
+    this.setBounded(this.sessionDirectories, sessionId, entry, SESSION_DIRECTORY_CACHE_MAX_ENTRIES)
     const settle = () => { entry.expiresAt = Date.now() + SESSION_DIRECTORY_CACHE_MS }
     void directory.then(settle, settle)
     return directory
@@ -213,7 +221,11 @@ export class InstanceEventBridge {
   private resolveDirectoryOwners(directory: string): Promise<string[]> {
     const now = Date.now()
     const cached = this.directoryOwners.get(directory)
-    if (cached && cached.expiresAt > now) return cached.owners
+    if (cached && cached.expiresAt > now) {
+      this.touch(this.directoryOwners, directory, cached)
+      return cached.owners
+    }
+    if (cached) this.directoryOwners.delete(directory)
 
     const workspaces = this.options.workspaceManager.list()
     const owners = Promise.allSettled(workspaces.map((workspace) => (
@@ -238,7 +250,7 @@ export class InstanceEventBridge {
         })
       })
     const entry = { expiresAt: Number.POSITIVE_INFINITY, owners }
-    this.directoryOwners.set(directory, entry)
+    this.setBounded(this.directoryOwners, directory, entry, DIRECTORY_OWNER_CACHE_MAX_ENTRIES)
     const settle = () => { entry.expiresAt = Date.now() + DIRECTORY_OWNER_CACHE_MS }
     void owners.then(settle, settle)
     return owners
@@ -249,6 +261,20 @@ export class InstanceEventBridge {
     this.sessionDirectories.clear()
     this.ptyDirectories.clear()
     this.shellDirectories.clear()
+  }
+
+  private touch<K, V>(cache: Map<K, V>, key: K, value: V): void {
+    cache.delete(key)
+    cache.set(key, value)
+  }
+
+  private setBounded<K, V>(cache: Map<K, V>, key: K, value: V, maxEntries: number): void {
+    this.touch(cache, key, value)
+    while (cache.size > maxEntries) {
+      const oldest = cache.keys().next().value as K | undefined
+      if (oldest === undefined) return
+      cache.delete(oldest)
+    }
   }
 
   private updateStatus(status: InstanceStreamStatus, reason?: string) {

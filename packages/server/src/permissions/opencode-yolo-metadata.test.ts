@@ -4,7 +4,11 @@ import type { OpenCodeClient } from "@opencode-ai/client"
 
 import type { SettingsService } from "../settings/service"
 import type { WorkspaceManager } from "../workspaces/manager"
-import { createOpencodeYoloPersistence } from "./opencode-yolo-metadata"
+import {
+  createOpencodeYoloPersistence,
+  SESSION_METADATA_MAX_ROWS,
+  SESSION_METADATA_PAGE_SIZE,
+} from "./opencode-yolo-metadata"
 
 function createHarness(serviceDirectory = "/repo") {
   let owner: Record<string, unknown> = {}
@@ -92,9 +96,18 @@ describe("OpenCode Yolo persistence", () => {
       },
     ])
     assert.deepEqual(listInputs, [
-      { directory: "/repo", limit: 10_000, cursor: undefined },
-      { directory: "/repo", limit: 10_000, cursor: "page-2" },
+      { directory: "/repo", limit: SESSION_METADATA_PAGE_SIZE, cursor: undefined },
+      { directory: "/repo", limit: SESSION_METADATA_PAGE_SIZE, cursor: "page-2" },
     ])
+  })
+
+  it("indexes only the bounded metadata projection while paging", async () => {
+    const { persistence } = createHarness()
+    const sessions = await persistence.loadSessions("instance")
+
+    assert.equal(SESSION_METADATA_PAGE_SIZE, 256)
+    assert.equal(SESSION_METADATA_MAX_ROWS, 20_000)
+    assert.deepEqual(Object.keys(sessions[0]).sort(), ["fork", "id", "parentId", "yoloEnabled"])
   })
 
   it("loads an exact session only when its native location belongs to the logical workspace", async () => {

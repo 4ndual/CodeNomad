@@ -4,13 +4,18 @@ import type { WorkspaceManager } from "../workspaces/manager"
 import { createInstanceClient } from "../workspaces/instance-client"
 import type { AutoAcceptPersistence, PersistedAutoAcceptSession } from "./auto-accept-manager"
 
-const SESSION_LIST_LIMIT = 10_000
+export const SESSION_METADATA_PAGE_SIZE = 256
+export const SESSION_METADATA_MAX_ROWS = 20_000
 const STATE_OWNER = "codenomad"
 
 type Metadata = Record<string, unknown>
 
 interface PersistedSessionState {
   yoloEnabled?: boolean
+}
+
+interface IndexedSessionMetadata extends PersistedAutoAcceptSession {
+  directory: string
 }
 
 export type OpencodeYoloPersistence = AutoAcceptPersistence
@@ -46,11 +51,16 @@ export function createOpencodeYoloPersistence(
     const directory = workspaceManager.getServiceDirectory(instanceId)
     if (!directory) throw new Error(`Yolo: instance ${instanceId} has no service location`)
     const client = await clientFor(instanceId)
-    const sessions: SessionInfo[] = []
+    const sessions = new Map<string, IndexedSessionMetadata>()
     let cursor: string | undefined
     do {
-      const page = await client.session.list({ directory, limit: SESSION_LIST_LIMIT, cursor })
-      sessions.push(...page.data)
+      const page = await client.session.list({ directory, limit: SESSION_METADATA_PAGE_SIZE, cursor })
+      for (const session of page.data) {
+        sessions.set(session.id, { ...persistedSession(session), directory: session.location.directory })
+        if (sessions.size > SESSION_METADATA_MAX_ROWS) {
+          throw new Error(`Yolo: workspace session metadata exceeded ${SESSION_METADATA_MAX_ROWS} rows`)
+        }
+      }
       cursor = page.cursor.next ?? undefined
     } while (cursor)
     return sessions
@@ -79,18 +89,20 @@ export function createOpencodeYoloPersistence(
   return {
     async loadSessions(instanceId): Promise<PersistedAutoAcceptSession[]> {
       const client = await clientFor(instanceId)
-      const sessions = new Map((await listSessions(instanceId)).map((session) => [session.id, session]))
+      const sessions = await listSessions(instanceId)
       await Promise.all(enabledSessionIds(settings).map(async (sessionId) => {
         if (sessions.has(sessionId)) return
         try {
           const session = await client.session.get({ sessionID: sessionId })
-          if (await workspaceManager.ownsDirectory(instanceId, session.location.directory)) sessions.set(session.id, session)
+          if (await workspaceManager.ownsDirectory(instanceId, session.location.directory)) {
+            sessions.set(session.id, { ...persistedSession(session), directory: session.location.directory })
+          }
         } catch {
           // Stale persisted IDs are harmless and may belong to a stopped workspace.
         }
       }))
-      const owned = await Promise.all(Array.from(sessions.values()).map(async (session) => (
-        await workspaceManager.ownsDirectory(instanceId, session.location.directory) ? persistedSession(session) : null
+      const owned = await Promise.all(Array.from(sessions.values()).map(async ({ directory, ...session }) => (
+        await workspaceManager.ownsDirectory(instanceId, directory) ? session : null
       )))
       return owned.filter((session): session is PersistedAutoAcceptSession => session !== null)
     },

@@ -3,7 +3,13 @@ import { describe, it } from "node:test"
 import type { OpenCodeEvent } from "@opencode-ai/client"
 import { EventBus } from "../events/bus"
 import type { Logger } from "../logger"
-import { InstanceEventBridge } from "./instance-events"
+import {
+  DIRECTORY_OWNER_CACHE_MAX_ENTRIES,
+  InstanceEventBridge,
+  PTY_DIRECTORY_CACHE_MAX_ENTRIES,
+  SESSION_DIRECTORY_CACHE_MAX_ENTRIES,
+  SHELL_DIRECTORY_CACHE_MAX_ENTRIES,
+} from "./instance-events"
 import type { WorkspaceManager } from "./manager"
 
 const logger = {
@@ -603,6 +609,31 @@ describe("InstanceEventBridge", () => {
       assert.equal(sessionGets(), 0)
       assert.deepEqual(received.map((event) => event.event.type), events.flatMap((event) => [event.type, event.type]))
       assert.deepEqual(received.map((event) => event.instanceId), events.flatMap(() => ["a", "b"]))
+    } finally {
+      bridge.shutdown()
+    }
+  })
+
+  it("bounds every retained event-routing cache with LRU eviction", () => {
+    const { manager } = locationlessManager([], {}, [{ id: "a", path: "/repo-a" }])
+    const bridge = new InstanceEventBridge({ workspaceManager: manager, eventBus: new EventBus(), logger })
+    const internal = bridge as any
+
+    try {
+      const cases = [
+        [internal.directoryOwners, DIRECTORY_OWNER_CACHE_MAX_ENTRIES],
+        [internal.sessionDirectories, SESSION_DIRECTORY_CACHE_MAX_ENTRIES],
+        [internal.ptyDirectories, PTY_DIRECTORY_CACHE_MAX_ENTRIES],
+        [internal.shellDirectories, SHELL_DIRECTORY_CACHE_MAX_ENTRIES],
+      ] as const
+      for (const [cache, limit] of cases) {
+        for (let index = 0; index <= limit; index += 1) {
+          internal.setBounded(cache, `key-${index}`, `value-${index}`, limit)
+        }
+        assert.equal(cache.size, limit)
+        assert.equal(cache.has("key-0"), false)
+        assert.equal(cache.get(`key-${limit}`), `value-${limit}`)
+      }
     } finally {
       bridge.shutdown()
     }
