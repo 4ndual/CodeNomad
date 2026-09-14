@@ -39,7 +39,7 @@ async function harness(
     requests++
     if (request.raw.url === "/session/session") {
       assert.equal(request.headers.authorization, "Basic internal-secret")
-      return { id: "session", location: { directory: sessionDirectory } }
+      return { id: "session", directory: sessionDirectory }
     }
     if (request.headers["x-test-delay-upstream-body"] === "1") {
       let started = false

@@ -961,7 +961,16 @@ async function getCompatibilitySession(endpoint: string, sessionId: string, auth
     throw error
   }
   if (!response.ok) throw new Error(`Compatibility session lookup failed (${response.status})`)
-  return await response.json() as { location: LocationRef }
+  const session = await response.json() as {
+    location?: LocationRef
+    directory?: string
+    live?: { directory?: string }
+  }
+  const directory = session.location?.directory ?? session.directory ?? session.live?.directory
+  if (typeof directory !== "string" || !directory.trim()) {
+    throw new Error("Compatibility session response is missing its directory")
+  }
+  return { ...session, location: { ...session.location, directory } }
 }
 
 function getCompatibilityLookupStatus(error: unknown): number | undefined {
