@@ -14,7 +14,7 @@ describe("workspace routes", () => {
     const descriptor: WorkspaceDescriptor = {
       id: "workspace",
       path: "C:/work",
-      status: "ready",
+      status: "starting",
       proxyPath: "/workspaces/workspace/instance",
       binaryId: "C:/tools/opencode.exe",
       binaryLabel: "opencode.exe",

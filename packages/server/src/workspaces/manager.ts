@@ -36,7 +36,6 @@ import { isPathOwnedByWorktree, resolveOwnedWorktreePath } from "./worktree-dire
 // Keep the request bounded, but do not classify a normally slow cold start as
 // a failed workspace after only 30 seconds.
 const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000
-const MAX_ACTIVE_WORKSPACE_CREATIONS = 32
 const WORKSPACE_STATE = Symbol("workspaceState")
 type ManagerTimeout = number | NodeJS.Timeout
 
@@ -113,6 +112,7 @@ interface WorkspaceRecord extends WorkspaceDescriptor {
 
 interface WorkspaceState {
   abortController: AbortController
+  activation?: Promise<void>
   settlement?: Promise<void>
   cleanupSettlement?: Promise<WorkspaceDescriptor>
   deletePromise?: Promise<WorkspaceDescriptor | undefined>
@@ -168,7 +168,6 @@ export class WorkspaceManager {
   private readonly activeLocationCreations = new Set<Promise<void>>()
   private locationEvictions: Promise<void> = Promise.resolve()
   private pendingLocationEvictions = 0
-  private activeWorkspaceCreations = 0
   private shuttingDown = false
   private readonly sharedService: SharedService
   private serviceAuthorization?: string
@@ -197,15 +196,21 @@ export class WorkspaceManager {
   }
 
   async getSharedServiceEndpoint(id: string): Promise<Endpoint | undefined> {
-    if (!this.workspaces.get(id)?.[WORKSPACE_STATE].published) return undefined
+    const record = this.workspaces.get(id)
+    if (!record?.[WORKSPACE_STATE].published) return undefined
     try {
-      const [endpoint, headers] = await Promise.all([this.sharedService.endpoint(), this.sharedService.headers()])
-      this.serviceAuthorization = headers?.authorization
-      return endpoint
+      await this.activateWorkspace(id)
+      return await this.sharedService.endpoint(record[WORKSPACE_STATE].serviceOptions)
     } catch (error) {
-      this.options.logger.warn({ err: error }, "Shared OpenCode service is unavailable")
+      this.options.logger.warn({ workspaceId: id, err: error }, "Shared OpenCode service is unavailable")
       return undefined
     }
+  }
+
+  async activateWorkspace(id: string): Promise<void> {
+    const record = this.workspaces.get(id)
+    if (!record?.[WORKSPACE_STATE].published) throw new Error("Workspace not found")
+    await this.ensureWorkspaceRuntime(record)
   }
 
   getSharedServiceClient(): Promise<OpenCodeClient> {
@@ -396,8 +401,6 @@ export class WorkspaceManager {
     options: WorkspaceCreateOptions = {},
   ): Promise<WorkspaceCreateResult> {
     if (options.requestId) this.beginCreationRequest(options.requestId)
-    let creationCounted = false
-    let settlementTracked = false
     const launchTimeoutMs = Math.max(1, this.options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS)
     const launchDeadlineAt = this.now() + launchTimeoutMs
     try {
@@ -424,18 +427,13 @@ export class WorkspaceManager {
       if (this.shuttingDown) {
         throw new Error("Workspace manager is shutting down")
       }
-      if (this.activeWorkspaceCreations >= MAX_ACTIVE_WORKSPACE_CREATIONS) {
-        throw new Error("Too many workspace creations are already in progress")
-      }
-      this.activeWorkspaceCreations += 1
-      creationCounted = true
       const record = this.reserveWorkspace(workspacePath, name, options, launchDeadlineAt)
-      const creation = this.startCreation(record, launchDeadlineAt, launchTimeoutMs)
-      settlementTracked = true
-      void record[WORKSPACE_STATE].settlement!.then(() => { this.activeWorkspaceCreations -= 1 })
-      return this.finishCreation(await creation, options.requestId, record)
+      const state = record[WORKSPACE_STATE]
+      state.published = true
+      state.settlement = Promise.resolve()
+      this.options.eventBus.publish({ type: "workspace.created", workspace: record })
+      return this.finishCreation({ workspace: record, created: true }, options.requestId, record)
     } finally {
-      if (creationCounted && !settlementTracked) this.activeWorkspaceCreations -= 1
       if (options.requestId) this.finishCreationRequest(options.requestId)
     }
   }
@@ -483,34 +481,6 @@ export class WorkspaceManager {
     this.workspaces.set(id, record)
     return record
   }
-  private startCreation(record: WorkspaceRecord,
-    launchDeadlineAt: number, launchTimeoutMs: number): Promise<WorkspaceCreateResult> {
-    const launch = this.createResolvedWorkspace(record, launchDeadlineAt)
-    const creation = this.createWithDeadline(record, launchDeadlineAt, launchTimeoutMs, launch)
-    record[WORKSPACE_STATE].settlement = launch.then(() => undefined, () => undefined)
-    return creation
-  }
-  private async createWithDeadline(record: WorkspaceRecord,
-    launchDeadlineAt: number, launchTimeoutMs: number,
-    launch: Promise<WorkspaceCreateResult>): Promise<WorkspaceCreateResult> {
-    const timeoutMs = Math.max(1, launchDeadlineAt - this.now())
-    const state = record[WORKSPACE_STATE]
-    let timeout: ManagerTimeout | null = (this.options.setTimeout ?? setTimeout)(() => {
-      timeout = null
-      if (!state.abortController.signal.aborted) {
-        state.abortController.abort(new WorkspaceLaunchTimeoutError(record.id, launchTimeoutMs))
-      }
-    }, timeoutMs)
-    try {
-      const deadline = new Promise<never>((_resolve, reject) => {
-        state.abortController.signal.addEventListener("abort", () => reject(state.abortController.signal.reason), { once: true })
-      })
-      return await Promise.race([launch, deadline])
-    } finally {
-      if (timeout) (this.options.clearTimeout ?? clearTimeout)(timeout)
-    }
-  }
-
   private async withLaunchDeadline<T>(operation: Promise<T>, workspaceId: string | undefined,
     deadlineAt: number, launchTimeoutMs: number): Promise<T> {
     const timeoutMs = Math.max(1, deadlineAt - this.now())
@@ -527,10 +497,46 @@ export class WorkspaceManager {
       if (timeout) (this.options.clearTimeout ?? clearTimeout)(timeout)
     }
   }
-  private async createResolvedWorkspace(
-    record: WorkspaceRecord,
-    launchDeadlineAt: number,
-  ): Promise<WorkspaceCreateResult> {
+  private ensureWorkspaceRuntime(record: WorkspaceRecord): Promise<void> {
+    const state = record[WORKSPACE_STATE]
+    if (record.status === "ready" && state.locationOwned) return Promise.resolve()
+    if (state.activation) return state.activation
+    record.status = "starting"
+    record.error = undefined
+    record.updatedAt = new Date().toISOString()
+    const activation = this.activateWorkspaceRuntimeWithDeadline(record)
+    state.activation = activation
+    void activation.finally(() => {
+      if (state.activation === activation) state.activation = undefined
+    }).catch(() => undefined)
+    return activation
+  }
+
+  private async activateWorkspaceRuntimeWithDeadline(record: WorkspaceRecord): Promise<void> {
+    const timeoutMs = Math.max(1, this.options.launchTimeoutMs ?? DEFAULT_LAUNCH_TIMEOUT_MS)
+    const deadlineAt = this.now() + timeoutMs
+    const controller = new AbortController()
+    const workspaceSignal = record[WORKSPACE_STATE].abortController.signal
+    const cancel = () => controller.abort(workspaceSignal.reason)
+    workspaceSignal.addEventListener("abort", cancel, { once: true })
+    let timer: ManagerTimeout | null = (this.options.setTimeout ?? setTimeout)(() => {
+      timer = null
+      controller.abort(new WorkspaceLaunchTimeoutError(record.id, timeoutMs))
+    }, timeoutMs)
+    try {
+      const activation = this.activateWorkspaceRuntime(record, controller.signal, deadlineAt)
+      record[WORKSPACE_STATE].settlement = activation.then(() => undefined, () => undefined)
+      const aborted = new Promise<never>((_resolve, reject) => {
+        controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true })
+      })
+      return await Promise.race([activation, aborted])
+    } finally {
+      workspaceSignal.removeEventListener("abort", cancel)
+      if (timer) (this.options.clearTimeout ?? clearTimeout)(timer)
+    }
+  }
+
+  private async activateWorkspaceRuntime(record: WorkspaceRecord, signal: AbortSignal, launchDeadlineAt: number): Promise<void> {
     const state = record[WORKSPACE_STATE]
     const { id, path: workspacePath, binaryId: resolvedBinaryPath } = record
     let cancelledLocation: LocationRef | undefined
@@ -558,29 +564,29 @@ export class WorkspaceManager {
           : this.createWslServiceLifecycle(launch, timeoutMs, startupEnvironment),
       }
       state.serviceOptions = serviceOptions
-      this.throwIfCancelled(record)
+      signal.throwIfAborted()
       record.wslDistro = launch.kind === "wsl" ? launch.distro : undefined
       const serviceDirectory = launch.kind === "wsl"
         ? await this.requireWslServiceDirectory(workspacePath, launch.distro, launchDeadlineAt - this.now())
         : workspacePath
       record.location = { directory: serviceDirectory }
       return await this.withLocationCreation(async () => {
-        this.throwIfCancelled(record)
+        signal.throwIfAborted()
         const [headersResult, locationResult] = await Promise.allSettled([
           this.sharedService.headers(serviceOptions, { deadlineAt: launchDeadlineAt }),
           this.sharedService.validateLocation(
-            { directory: serviceDirectory },
-            { signal: state.abortController.signal, deadlineAt: launchDeadlineAt },
+            { directory: serviceDirectory, workspaceID: id },
+            { signal, deadlineAt: launchDeadlineAt },
             serviceOptions,
           ),
         ])
-        if (state.abortController.signal.aborted && locationResult.status === "fulfilled") {
+        if (signal.aborted && locationResult.status === "fulfilled") {
           cancelledLocation = {
             directory: locationResult.value.directory,
             workspaceID: locationResult.value.workspaceID,
           }
         }
-        this.throwIfCancelled(record)
+        signal.throwIfAborted()
         if (locationResult.status === "fulfilled") {
           record.location = { directory: locationResult.value.directory, workspaceID: locationResult.value.workspaceID }
           state.locationOwned = true
@@ -588,19 +594,15 @@ export class WorkspaceManager {
         if (headersResult.status === "rejected") throw headersResult.reason
         if (locationResult.status === "rejected") throw locationResult.reason
         this.serviceAuthorization = headersResult.value?.authorization
-        this.throwIfCancelled(record)
-        state.published = true
-        this.options.eventBus.publish({ type: "workspace.created", workspace: record })
-        this.throwIfCancelled(record)
-
+        signal.throwIfAborted()
         record.status = "ready"
+        record.error = undefined
         record.updatedAt = new Date().toISOString()
         this.options.eventBus.publish({ type: "workspace.started", workspace: record })
         this.options.logger.info({ workspaceId: id, location: record.location }, "Workspace ready")
-        return { workspace: record, created: true }
       })
     } catch (error) {
-      const launchFailure = state.abortController.signal.aborted ? state.abortController.signal.reason : error
+      const launchFailure = signal.aborted ? signal.reason : error
       if ((state.locationOwned || cancelledLocation) && !this.shuttingDown) {
         const eviction = cancelledLocation
           ? this.evictCancelledLocation(record, cancelledLocation)
@@ -612,8 +614,11 @@ export class WorkspaceManager {
           )
         })
       }
-      if (!state.deletePromise && (!state.published || !state.locationOwned)) {
-        this.removeRecord(id, record, state.published)
+      if (!state.abortController.signal.aborted && this.workspaces.get(id) === record) {
+        record.status = "error"
+        record.error = launchFailure instanceof Error ? launchFailure.message : String(launchFailure)
+        record.updatedAt = new Date().toISOString()
+        this.options.eventBus.publish({ type: "workspace.error", workspace: record })
       }
       this.options.logger.error({ workspaceId: id, err: launchFailure }, "Workspace failed to start")
       throw launchFailure

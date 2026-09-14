@@ -177,17 +177,21 @@ describe("OpenCodeSharedService", () => {
 
   it("formats auth, validates locations, and evicts through the official debug API", async () => {
     let clientHeaders: HeadersInit | undefined
+    let validated: unknown
     let evicted: unknown
     let evictionSignal: AbortSignal | undefined
     const service = createService({
       makeClient: (options) => {
         clientHeaders = options.headers
         return {
-          location: { get: async () => ({
-            directory: "/repo",
-            workspaceID: "canonical",
-            project: { id: "project", directory: "/repo", canonical: "/repo" },
-          }) },
+          location: { get: async (input: unknown) => {
+            validated = input
+            return {
+              directory: "/repo",
+              workspaceID: "canonical",
+              project: { id: "project", directory: "/repo", canonical: "/repo" },
+            }
+          } },
           debug: { location: { evict: async (input: unknown, request?: { signal?: AbortSignal }) => {
             evicted = input
             evictionSignal = request?.signal
@@ -210,6 +214,7 @@ describe("OpenCodeSharedService", () => {
     )
 
     assert.deepEqual(clientHeaders, { authorization: "Basic proxy" })
+    assert.deepEqual(validated, { location: { directory: "/repo", workspace: "foreign" } })
     assert.deepEqual(evicted, { location: { directory: "/repo", workspace: "canonical" } })
     assert.equal(evictionSignal, signal)
   })
