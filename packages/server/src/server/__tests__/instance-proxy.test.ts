@@ -37,6 +37,10 @@ async function harness(
   const delayedUpstreamStarted = new Promise<void>((resolve) => { markDelayedUpstreamStarted = resolve })
   upstream.all("/*", async (request, reply) => {
     requests++
+    if (request.raw.url === "/session/session") {
+      assert.equal(request.headers.authorization, "Basic internal-secret")
+      return { id: "session", location: { directory: sessionDirectory } }
+    }
     if (request.headers["x-test-delay-upstream-body"] === "1") {
       let started = false
       const stream = new Readable({
@@ -166,19 +170,21 @@ async function harness(
 
 describe("instance proxy location enforcement", () => {
   it("permits the explicit OMP Live compatibility surface without opening arbitrary routes", async () => {
-    const { app } = await harness()
-    for (const [method, url] of [
-      ["GET", "/workspaces/workspace/instance/profile"],
-      ["GET", "/workspaces/workspace/instance/session/session/todo"],
-      ["PUT", "/workspaces/workspace/instance/session/session/todo"],
-      ["POST", "/workspaces/workspace/instance/session/session/hub/send"],
-      ["POST", "/workspaces/workspace/instance/session/session/fork"],
+    const { app, sessionGets } = await harness()
+    for (const [method, url, upstreamPath] of [
+      ["GET", "/workspaces/workspace/instance/profile", "/profile"],
+      ["GET", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
+      ["PUT", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
+      ["POST", "/workspaces/workspace/instance/session/session/hub/send", "/session/session/hub/send"],
+      ["POST", "/workspaces/workspace/instance/session/session/fork", "/session/session/fork"],
     ] as const) {
       const response = await app.inject({ method, url, ...(method === "GET" ? {} : { payload: {} }) })
       assert.equal(response.statusCode, 200, `${method} ${url}`)
+      assert.equal(new URL(JSON.parse(response.body).url, "http://upstream").pathname, upstreamPath)
     }
     const forbidden = await app.inject({ method: "POST", url: "/workspaces/workspace/instance/session/session/arbitrary", payload: {} })
     assert.equal(forbidden.statusCode, 403)
+    assert.deepEqual(sessionGets, [], "compatibility routes must not use the native /api/session lookup")
   })
 
   it("forwards native execution settlement only for a session owned by the workspace", async () => {

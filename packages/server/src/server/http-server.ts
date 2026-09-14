@@ -848,13 +848,16 @@ async function proxyWorkspaceRequest(args: {
   if (sessionId && !isGlobalFormAction(pathname, request.method)) {
     let session
     try {
-      session = await (await workspaceManager.getSharedServiceClient()).session.get({ sessionID: sessionId })
+      session = pathname.startsWith("/session/")
+        ? await getCompatibilitySession(endpoint.url, sessionId, workspaceManager.getInstanceAuthorizationHeader(workspaceId))
+        : await (await workspaceManager.getSharedServiceClient()).session.get({ sessionID: sessionId })
     } catch (error) {
-      if (isInvalidRequestError(error)) {
+      const compatibilityStatus = getCompatibilityLookupStatus(error)
+      if (compatibilityStatus === 400 || isInvalidRequestError(error)) {
         reply.code(400).send({ error: "Invalid session ID" })
         return
       }
-      if (isSessionNotFoundError(error)) {
+      if (compatibilityStatus === 404 || isSessionNotFoundError(error)) {
         reply.code(404).send({ error: "Session not found" })
         return
       }
@@ -939,6 +942,31 @@ async function proxyWorkspaceRequest(args: {
     releaseMutation?.()
     throw error
   }
+}
+
+async function getCompatibilitySession(endpoint: string, sessionId: string, authorization: string | undefined) {
+  const url = buildInstanceTargetUrl(endpoint, `session/${sessionId}`)
+  if (!url) throw new Error("Invalid compatibility session URL")
+  const response = await fetch(url, {
+    headers: authorization ? { authorization } : undefined,
+  })
+  if (response.status === 400) {
+    const error = new Error("Invalid session ID") as Error & { compatibilityStatus?: number }
+    error.compatibilityStatus = 400
+    throw error
+  }
+  if (response.status === 404) {
+    const error = new Error("Session not found") as Error & { compatibilityStatus?: number }
+    error.compatibilityStatus = 404
+    throw error
+  }
+  if (!response.ok) throw new Error(`Compatibility session lookup failed (${response.status})`)
+  return await response.json() as { location: LocationRef }
+}
+
+function getCompatibilityLookupStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object" || !("compatibilityStatus" in error)) return undefined
+  return typeof error.compatibilityStatus === "number" ? error.compatibilityStatus : undefined
 }
 
 function appendIncomingQuery(targetUrl: URL, incomingUrl: string): URL {
