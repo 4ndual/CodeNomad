@@ -165,6 +165,22 @@ async function harness(
 }
 
 describe("instance proxy location enforcement", () => {
+  it("permits the explicit OMP Live compatibility surface without opening arbitrary routes", async () => {
+    const { app } = await harness()
+    for (const [method, url] of [
+      ["GET", "/workspaces/workspace/instance/profile"],
+      ["GET", "/workspaces/workspace/instance/session/session/todo"],
+      ["PUT", "/workspaces/workspace/instance/session/session/todo"],
+      ["POST", "/workspaces/workspace/instance/session/session/hub/send"],
+      ["POST", "/workspaces/workspace/instance/session/session/fork"],
+    ] as const) {
+      const response = await app.inject({ method, url, ...(method === "GET" ? {} : { payload: {} }) })
+      assert.equal(response.statusCode, 200, `${method} ${url}`)
+    }
+    const forbidden = await app.inject({ method: "POST", url: "/workspaces/workspace/instance/session/session/arbitrary", payload: {} })
+    assert.equal(forbidden.statusCode, 403)
+  })
+
   it("forwards native execution settlement only for a session owned by the workspace", async () => {
     const { app, requestCount, sessionGets } = await harness()
     const response = await app.inject({ method: "POST", url: "/workspaces/workspace/instance/api/session/session/wait" })
