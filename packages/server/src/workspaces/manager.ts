@@ -1,7 +1,7 @@
 import path from "path"
 import { spawnSync } from "child_process"
 import { randomUUID } from "node:crypto"
-import { mkdir, realpath } from "node:fs/promises"
+import { mkdir, realpath, stat } from "node:fs/promises"
 import type { Endpoint } from "@opencode-ai/client/service"
 import type { LocationGetOutput, LocationRef, OpenCodeClient, OpenCodeEvent } from "@opencode-ai/client"
 import { EventBus } from "../events/bus"
@@ -31,6 +31,7 @@ import {
 } from "./opencode-service"
 import { WslOpenCodeService } from "./wsl-opencode-service"
 import { isPathOwnedByWorktree, resolveOwnedWorktreePath } from "./worktree-directory"
+import { WorkspaceMetadataStore, type PersistedWorkspaceMetadata } from "./metadata-store"
 
 // First launch can include Bun/TypeScript compilation and session discovery.
 // Keep the request bounded, but do not classify a normally slow cold start as
@@ -91,6 +92,7 @@ interface WorkspaceManagerOptions {
     timeoutMs: number,
     startupEnvironment: NodeJS.ProcessEnv,
   ) => OpenCodeServiceLifecycle
+  metadataStore?: WorkspaceMetadataStore
 }
 
 export function isWindowsHostPath(directory: string): boolean {
@@ -172,9 +174,37 @@ export class WorkspaceManager {
   private readonly sharedService: SharedService
   private serviceAuthorization?: string
   private warnedLegacyServiceEnvironment = false
+  private readonly metadataStore?: WorkspaceMetadataStore
 
   constructor(private readonly options: WorkspaceManagerOptions) {
     this.sharedService = options.sharedService ?? new OpenCodeSharedService()
+    this.metadataStore = options.metadataStore
+  }
+
+  async restore(): Promise<void> {
+    if (!this.metadataStore) return
+    let persisted: PersistedWorkspaceMetadata[]
+    try {
+      persisted = await this.metadataStore.read()
+    } catch (error) {
+      this.options.logger.warn({ err: error }, "Failed to read persisted workspace metadata")
+      return
+    }
+
+    const seen = new Set<string>()
+    for (const metadata of persisted) {
+      if (seen.has(metadata.id)) continue
+      seen.add(metadata.id)
+      const workspacePath = await this.resolveRestoredPath(metadata.path)
+      if (!workspacePath) {
+        this.options.logger.warn({ workspaceId: metadata.id, folder: metadata.path }, "Skipping stale persisted workspace")
+        continue
+      }
+      const record = this.createRecord({ ...metadata, path: workspacePath, status: "stopped" })
+      record[WORKSPACE_STATE].published = true
+      record[WORKSPACE_STATE].settlement = Promise.resolve()
+      this.workspaces.set(record.id, record)
+    }
   }
   list(): WorkspaceDescriptor[] {
     return Array.from(this.workspaces.values())
@@ -431,6 +461,12 @@ export class WorkspaceManager {
       const state = record[WORKSPACE_STATE]
       state.published = true
       state.settlement = Promise.resolve()
+      try {
+        await this.persistWorkspaces()
+      } catch (error) {
+        this.removeRecord(record.id, record, false)
+        throw error
+      }
       this.options.eventBus.publish({ type: "workspace.created", workspace: record })
       return this.finishCreation({ workspace: record, created: true }, options.requestId, record)
     } finally {
@@ -453,7 +489,7 @@ export class WorkspaceManager {
     const proxyPath = `/workspaces/${id}/instance`
 
 
-    const record = {
+    const record = this.createRecord({
       id,
       requestId: options.requestId,
       path: workspacePath,
@@ -465,7 +501,13 @@ export class WorkspaceManager {
       binaryVersion: binary.version,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    } as WorkspaceRecord
+    })
+    this.workspaces.set(id, record)
+    return record
+  }
+
+  private createRecord(descriptor: WorkspaceDescriptor): WorkspaceRecord {
+    const record = { ...descriptor } as WorkspaceRecord
     Object.defineProperties(record, {
       wslDistro: { value: undefined, writable: true },
       [WORKSPACE_STATE]: { value: {
@@ -473,12 +515,10 @@ export class WorkspaceManager {
         published: false,
         stoppedPublished: false,
         locationOwned: false,
-        creationClaims: new Map(options.requestId ? [[options.requestId, "owner"]] : []),
-        creationRetained: options.requestId === undefined,
+        creationClaims: new Map(descriptor.requestId ? [[descriptor.requestId, "owner"]] : []),
+        creationRetained: descriptor.requestId === undefined,
       } },
     })
-
-    this.workspaces.set(id, record)
     return record
   }
   private async withLaunchDeadline<T>(operation: Promise<T>, workspaceId: string | undefined,
@@ -785,6 +825,7 @@ export class WorkspaceManager {
       await state.settlement!
       await this.evictRecordLocation(record)
       this.removeRecord(id, record, true)
+      await this.persistWorkspaces()
       return record
     })()
     state.cleanupSettlement = cleanup
@@ -980,6 +1021,34 @@ export class WorkspaceManager {
 
   private now(): number {
     return (this.options.now ?? Date.now)()
+  }
+
+  private async resolveRestoredPath(candidate: string): Promise<string | null> {
+    try {
+      const resolved = path.normalize(await realpath(candidate))
+      const root = path.normalize(await realpath(this.options.rootDir))
+      const relative = path.relative(root, resolved)
+      if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null
+      return (await stat(resolved)).isDirectory() ? resolved : null
+    } catch {
+      return null
+    }
+  }
+
+  private persistWorkspaces(): Promise<void> {
+    if (!this.metadataStore) return Promise.resolve()
+    const workspaces = this.list().map(({ id, path: workspacePath, name, proxyPath, binaryId, binaryLabel, binaryVersion, createdAt, updatedAt }) => ({
+      id,
+      path: workspacePath,
+      ...(name === undefined ? {} : { name }),
+      proxyPath,
+      binaryId,
+      binaryLabel,
+      ...(binaryVersion === undefined ? {} : { binaryVersion }),
+      createdAt,
+      updatedAt,
+    }))
+    return this.metadataStore.write(workspaces)
   }
 
   private removeRecord(

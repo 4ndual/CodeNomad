@@ -8,6 +8,7 @@ import { fileURLToPath } from "url"
 import { createRequire } from "module"
 import { createHttpServer } from "./server/http-server"
 import { WorkspaceManager } from "./workspaces/manager"
+import { WorkspaceMetadataStore } from "./workspaces/metadata-store"
 import { resolveConfigLocation } from "./config/location"
 import { SettingsService } from "./settings/service"
 import { BinaryResolver } from "./settings/binaries"
@@ -384,7 +385,9 @@ async function main() {
     eventBus,
     logger: workspaceLogger,
     prepareSessionPruning,
+    metadataStore: new WorkspaceMetadataStore(path.join(configDir, "workspaces.json")),
   })
+  await workspaceManager.restore()
   const nativeParent = new NativeParent()
   if (nativeParent.available) {
     try {
