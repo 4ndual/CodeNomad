@@ -412,7 +412,7 @@ describe("instance proxy location enforcement", () => {
       url: "/workspaces/workspace/instance/api/session?project=owned-project",
     })
     assert.equal(response.statusCode, 200)
-    assert.equal(JSON.parse(response.body).url, "/api/session?project=owned-project")
+    assert.equal(JSON.parse(response.body).url, "/api/session?project=owned-project&scope=workspace")
 
     const foreign = await app.inject({
       method: "GET",
@@ -503,8 +503,8 @@ describe("instance proxy location enforcement", () => {
     assert.equal(headers.cookie, undefined)
     assert.doesNotMatch(headers.connection ?? "", /x-remove-me/i)
     assert.equal(headers["x-forwarded-for"], undefined)
-    assert.equal(headers["x-opencode-directory"], undefined)
-    assert.equal(headers["x-opencode-workspace"], undefined)
+    assert.equal(headers["x-opencode-directory"], "%2Frepo")
+    assert.equal(headers["x-opencode-workspace"], "workspace")
     assert.equal(headers["x-opencode-routing-test"], undefined)
     assert.equal(headers["x-remove-me"], undefined)
     assert.equal(response.headers["set-cookie"], undefined)

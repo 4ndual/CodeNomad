@@ -791,6 +791,9 @@ async function proxyWorkspaceRequest(args: {
     translatedPromptPaths.set(candidate, translated)
   }
   const promptBody = replacePromptFileUris(serviceBody, translatedPromptPaths)
+  const bridgeScope = globalFormLocation ? "global" : "workspace"
+  const bridgeSessionList = request.method === "GET" && pathname.replace(/\/+$/, "") === "/api/session"
+  if (bridgeSessionList) targetUrl.searchParams.set("scope", bridgeScope)
 
   const requestedDirectory = requestLocations.directories[0]
   const runtimeLocation = { directory: requestedDirectory ? translatedDirectories.get(requestedDirectory) ?? serviceDirectory : serviceDirectory }
@@ -886,7 +889,10 @@ async function proxyWorkspaceRequest(args: {
       ...(body !== request.body ? { body } : {}),
       rewriteRequestHeaders: (_originalRequest, headers) => {
         const outgoingHeaders = sanitizeInstanceProxyRequestHeaders(headers, instanceAuthHeader)
-        if (globalFormLocation) {
+        if (bridgeSessionList && bridgeScope === "workspace") {
+          outgoingHeaders["x-opencode-workspace"] = workspaceId
+          outgoingHeaders["x-opencode-directory"] = encodeURIComponent(serviceDirectory)
+        } else if (globalFormLocation) {
           outgoingHeaders["x-opencode-directory"] = encodeURIComponent(translatedDirectories.get(globalFormLocation.directory)!)
           if (globalFormLocation.workspaceID) outgoingHeaders["x-opencode-workspace"] = globalFormLocation.workspaceID
         }
