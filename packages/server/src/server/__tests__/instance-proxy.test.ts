@@ -149,7 +149,7 @@ async function harness(
   apps.push(app)
   // Match production: Bun's built-in undici Agent does not implement the
   // callback-style request contract expected by @fastify/reply-from 9.
-  await app.register(replyFrom, { undici: false })
+  await app.register(replyFrom, { undici: false as never })
   registerInstanceProxyRoutes(app, { workspaceManager: manager, logger: logger(), worktreeDeletionFence })
   await app.ready()
   return {

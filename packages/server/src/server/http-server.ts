@@ -206,7 +206,7 @@ export function createHttpServer(deps: HttpServerDeps) {
     // implement the callback-style `request()` contract required by reply-from 9.
     // Its supported HTTP/HTTPS transport works in both Bun and Node and removes
     // the request timeout after an event-stream response is established.
-    undici: false,
+    undici: false as never,
   })
 
   registerAuthRoutes(app, { authManager: deps.authManager })
