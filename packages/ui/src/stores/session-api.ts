@@ -293,7 +293,7 @@ function getV2SessionItems(response: ProjectSessionListResponse): SDKSession[] {
   return response.data
 }
 
-async function fetchCompleteProjectSessionInventory(
+async function fetchCompleteSessionInventory(
   instanceId: string,
   signal?: AbortSignal,
   isCurrent: () => boolean = () => true,
@@ -301,15 +301,22 @@ async function fetchCompleteProjectSessionInventory(
   const project = getInstanceMetadata(instanceId)?.project?.id
   if (!project) return []
   const inventory = new Map<string, SDKSession>()
-  const seenCursors = new Set<string>()
-  let response = await fetchV2Sessions(instanceId, { project, order: "desc" }, signal)
-  while (true) {
-    if (!isCurrent()) return []
-    for (const session of response.data) inventory.set(session.id, session)
-    if (!response.nextCursor) break
-    if (seenCursors.has(response.nextCursor)) throw new Error(`Repeated session cursor: ${response.nextCursor}`)
-    seenCursors.add(response.nextCursor)
-    response = await fetchV2Sessions(instanceId, { cursor: response.nextCursor }, signal)
+  const directory = instances().get(instanceId)?.folder
+  const scopes: V2SessionListOptions[] = [{ project, order: "desc" }]
+  // V1 sessions can remain in the global project after migration while sharing this directory.
+  if (project !== "global" && directory) scopes.push({ directory, order: "desc" })
+
+  for (const scope of scopes) {
+    const seenCursors = new Set<string>()
+    let response = await fetchV2Sessions(instanceId, scope, signal)
+    while (true) {
+      if (!isCurrent()) return []
+      for (const session of response.data) inventory.set(session.id, session)
+      if (!response.nextCursor) break
+      if (seenCursors.has(response.nextCursor)) throw new Error(`Repeated session cursor: ${response.nextCursor}`)
+      seenCursors.add(response.nextCursor)
+      response = await fetchV2Sessions(instanceId, { cursor: response.nextCursor }, signal)
+    }
   }
   return Array.from(inventory.values())
 }
@@ -513,14 +520,12 @@ async function fetchSessions(instanceId: string, options?: {
     }
     let inventory: SDKSession[] = []
     let inventoryComplete = false
-    if (hasProjectInventory) {
-      try {
-        inventory = await fetchCompleteProjectSessionInventory(instanceId, options?.signal, isCurrent)
-        inventoryComplete = response.complete
-      } catch (error) {
-        if (options?.signal?.aborted) throw error
-        log.warn("Failed to enrich the session list with project descendants", { instanceId, error })
-      }
+    try {
+      inventory = await fetchCompleteSessionInventory(instanceId, options?.signal, isCurrent)
+      inventoryComplete = hasProjectInventory && response.complete
+    } catch (error) {
+      if (options?.signal?.aborted) throw error
+      log.warn("Failed to enrich the session list with project descendants", { instanceId, error })
     }
     if (!isCurrent()) return
     const rootIdsFromPage = new Set(rootApiSessions.map((session) => session.id))
