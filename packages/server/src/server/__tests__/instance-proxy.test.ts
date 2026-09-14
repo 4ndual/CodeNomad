@@ -147,7 +147,9 @@ async function harness(
   const app = Fastify()
   const worktreeDeletionFence = new WorktreeDeletionFence()
   apps.push(app)
-  await app.register(replyFrom)
+  // Match production: Bun's built-in undici Agent does not implement the
+  // callback-style request contract expected by @fastify/reply-from 9.
+  await app.register(replyFrom, { undici: false })
   registerInstanceProxyRoutes(app, { workspaceManager: manager, logger: logger(), worktreeDeletionFence })
   await app.ready()
   return {

@@ -202,12 +202,11 @@ export function createHttpServer(deps: HttpServerDeps) {
 
   app.register(replyFrom, {
     contentTypesToEncode: [],
-    undici: {
-      connections: 16,
-      pipelining: 1,
-      bodyTimeout: 0,
-      headersTimeout: 0,
-    },
+    // Bun's built-in `undici` compatibility module exposes an Agent that does not
+    // implement the callback-style `request()` contract required by reply-from 9.
+    // Its supported HTTP/HTTPS transport works in both Bun and Node and removes
+    // the request timeout after an event-stream response is established.
+    undici: false,
   })
 
   registerAuthRoutes(app, { authManager: deps.authManager })
