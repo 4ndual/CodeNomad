@@ -32,7 +32,10 @@ import {
 import { WslOpenCodeService } from "./wsl-opencode-service"
 import { isPathOwnedByWorktree, resolveOwnedWorktreePath } from "./worktree-directory"
 
-const DEFAULT_LAUNCH_TIMEOUT_MS = 30_000
+// First launch can include Bun/TypeScript compilation and session discovery.
+// Keep the request bounded, but do not classify a normally slow cold start as
+// a failed workspace after only 30 seconds.
+const DEFAULT_LAUNCH_TIMEOUT_MS = 90_000
 const MAX_ACTIVE_WORKSPACE_CREATIONS = 32
 const WORKSPACE_STATE = Symbol("workspaceState")
 type ManagerTimeout = number | NodeJS.Timeout
