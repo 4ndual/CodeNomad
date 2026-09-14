@@ -3,7 +3,7 @@ const fs = require("node:fs")
 const os = require("node:os")
 const path = require("node:path")
 const test = require("node:test")
-const { resolveNpmTarget, validateServerProductionLock } = require("./desktop-server-resources.cjs")
+const { copyPackagedServerResources, resolveNpmTarget, validateServerProductionLock } = require("./desktop-server-resources.cjs")
 const { resolveEsbuildExecutable } = require("../packages/tauri-app/scripts/prebuild.js")
 
 test("maps every supported desktop target to npm OS and CPU", () => {
@@ -34,6 +34,26 @@ test("rejects an unpinned production dependency despite an otherwise valid lock"
   const lock = JSON.parse(fs.readFileSync(path.join(root, "package-lock.json"), "utf8"))
   delete lock.packages["node_modules/undici"].integrity
   assert.throws(() => validateServerProductionLock(lock), /does not integrity-pin node_modules\/undici/)
+})
+
+test("rejects desktop packaging when the bundled session-pruning plugin is missing", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "codenomad-server-resources-"))
+  const serverRoot = path.join(root, "server")
+  const serverDest = path.join(root, "resources", "server")
+  fs.mkdirSync(path.join(serverRoot, "dist"), { recursive: true })
+  fs.mkdirSync(path.join(serverRoot, "public"), { recursive: true })
+  fs.mkdirSync(path.join(serverRoot, "node_modules"), { recursive: true })
+  fs.writeFileSync(path.join(serverRoot, "package.json"), "{}\n")
+  fs.writeFileSync(path.join(serverRoot, "dist", "bin.js"), "")
+
+  try {
+    assert.throws(
+      () => copyPackagedServerResources({ serverRoot, serverDest }),
+      /Missing required server artifact: .*plugins.*session-pruning.*plugin\.mjs/,
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test("resolves a macOS ARM64 esbuild binary nested under esbuild", (t) => {

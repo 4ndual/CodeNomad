@@ -15,6 +15,11 @@ const requiredPackages = [
   "zod",
   "node-forge",
 ]
+const requiredServerArtifacts = [
+  path.join("dist", "bin.js"),
+  path.join("dist", "plugins", "session-pruning", "plugin.mjs"),
+  "node_modules",
+]
 
 function parseArgs(argv) {
   const options = {}
@@ -65,7 +70,7 @@ function smokeServer(resourcesRoot, target) {
   const entrypoint = path.join(serverRoot, "dist", "bin.js")
   const node = nodeBinary(resourcesRoot, target)
 
-  for (const requiredPath of [node, entrypoint, path.join(serverRoot, "node_modules")]) {
+  for (const requiredPath of [node, ...requiredServerArtifacts.map((artifact) => path.join(serverRoot, artifact))]) {
     if (!fs.existsSync(requiredPath)) throw new Error(`Missing packaged runtime path: ${requiredPath}`)
   }
 

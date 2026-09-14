@@ -12,6 +12,10 @@ const npmTargets = {
   "win32-x64": { os: "win32", cpu: "x64" },
   "win32-arm64": { os: "win32", cpu: "arm64" },
 }
+const requiredServerDistArtifacts = [
+  "bin.js",
+  path.join("plugins", "session-pruning", "plugin.mjs"),
+]
 
 function resolveNpmTarget(target = process.env.CODENOMAD_NODE_TARGET || `${process.platform}-${process.arch}`) {
   const npmTarget = npmTargets[target]
@@ -145,6 +149,10 @@ function copyServerDist(serverRoot, serverDest, log) {
 
   if (!fs.existsSync(from)) {
     throw new Error(`Missing required server artifact: ${from}`)
+  }
+  for (const artifact of requiredServerDistArtifacts) {
+    const source = path.join(from, artifact)
+    if (!fs.existsSync(source)) throw new Error(`Missing required server artifact: ${source}`)
   }
 
   fs.cpSync(from, to, {
@@ -321,6 +329,7 @@ function pruneKnownServerDependencies(root, log) {
 
 module.exports = {
   copyPackagedServerResources,
+  requiredServerDistArtifacts,
   resolveNpmTarget,
   stagePackagedServer,
   validateServerProductionLock,
