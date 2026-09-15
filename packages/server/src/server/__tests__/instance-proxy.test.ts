@@ -178,6 +178,11 @@ describe("instance proxy location enforcement", () => {
       ["PUT", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
       ["POST", "/workspaces/workspace/instance/session/session/hub/send", "/session/session/hub/send"],
       ["POST", "/workspaces/workspace/instance/session/session/fork", "/session/session/fork"],
+      [
+        "POST",
+        "/workspaces/workspace/instance/api/integration/anthropic/credentials/import",
+        "/api/integration/anthropic/credentials/import",
+      ],
     ] as const) {
       const response = await app.inject({ method, url, ...(method === "GET" ? {} : { payload: {} }) })
       assert.equal(response.statusCode, 200, `${method} ${url}`)
