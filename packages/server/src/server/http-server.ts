@@ -96,6 +96,10 @@ export function createHttpServer(deps: HttpServerDeps) {
   const app = Fastify(
     ({
       logger: false,
+      // Prompt attachments are sent as bounded inline data URLs by OMP Live.
+      // Fastify's 1 MiB default rejected ordinary phone screenshots before the
+      // bridge could apply its MIME and 25 MiB attachment checks.
+      bodyLimit: 40 * 1024 * 1024,
       ...(deps.protocol === "https" && deps.httpsOptions ? { https: deps.httpsOptions } : {}),
     } as unknown) as any,
   ) as unknown as FastifyInstance
@@ -1304,6 +1308,8 @@ function isAllowedInstanceApiRoute(method: string, pathname: string): boolean {
     ["PATCH", /^\/api\/shell\/[^/]+\/timeout$/],
     ["POST", /^\/api\/mcp\/[^/]+\/(?:connect|disconnect)$/],
     ["DELETE", /^\/api\/credential\/[^/]+$/],
+    ["PUT", /^\/api\/auth\/[^/]+$/],
+    ["DELETE", /^\/api\/auth\/[^/]+$/],
     ["POST", /^\/api\/integration\/[^/]+\/connect\/(?:key|oauth|command)$/],
     ["GET", /^\/api\/integration\/[^/]+\/connect\/(?:oauth|command)\/[^/]+$/],
     ["DELETE", /^\/api\/integration\/[^/]+\/connect\/(?:oauth|command)\/[^/]+$/],
