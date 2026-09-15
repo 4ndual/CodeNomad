@@ -1344,7 +1344,7 @@ function isAllowedInstanceApiRoute(method: string, pathname: string): boolean {
     ["PATCH", /^\/session\/[^/]+(?:\/message\/[^/]+\/part\/[^/]+)?$/],
     ["PUT", /^\/session\/[^/]+\/todo$/],
     ["DELETE", /^\/session\/[^/]+(?:\/message\/[^/]+(?:\/part\/[^/]+)?|\/share)?$/],
-    ["POST", /^\/session\/[^/]+\/(?:resume|stop|message|fork|summarize|shell|command|abort|init|share|prompt_async)$/],
+    ["POST", /^\/session\/[^/]+\/(?:resume|stop|message|fork|fork-profile|summarize|shell|command|abort|init|share|prompt_async)$/],
     ["POST", /^\/session\/[^/]+\/revert\/(?:stage|clear)$/],
     ["POST", /^\/session\/[^/]+\/hub\/(?:read|send|channels)$/],
     ["POST", /^\/session\/[^/]+\/hub\/channels\/[^/]+\/(?:join|leave)$/],
