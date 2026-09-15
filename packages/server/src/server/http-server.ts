@@ -1332,6 +1332,7 @@ function isAllowedInstanceApiRoute(method: string, pathname: string): boolean {
     ["GET", /^\/api\/experimental\/session\/[^/]+\/log$/],
     // OMP Live compatibility routes used by the Svelte client. Keep this list
     // explicit: the workspace proxy must never become an unrestricted tunnel.
+    ["GET", /^\/(?:global\/event|event)$/],
     ["GET", /^\/(?:global\/health|config(?:\/providers)?|experimental\/workspace|path|profile|project(?:\/current)?|file(?:\/content|\/status)?|find\/file|lsp|agent|command|provider(?:\/auth)?|session(?:\/status)?|permission|question|mcp)$/],
     ["PATCH", /^\/(?:config|project\/[^/]+)$/],
     ["PUT", /^\/auth\/[^/]+$/],

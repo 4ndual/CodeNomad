@@ -173,6 +173,7 @@ describe("instance proxy location enforcement", () => {
     const { app, sessionGets } = await harness()
     for (const [method, url, upstreamPath] of [
       ["GET", "/workspaces/workspace/instance/profile", "/profile"],
+      ["GET", "/workspaces/workspace/instance/global/event?directory=%2Frepo", "/global/event"],
       ["GET", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
       ["PUT", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
       ["POST", "/workspaces/workspace/instance/session/session/hub/send", "/session/session/hub/send"],
