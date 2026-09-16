@@ -1136,7 +1136,7 @@ function applyDefaultWorkspaceLocation(
 
 function getSessionRouteId(pathname: string): string | null {
   const match = pathname.match(/^\/(?:api\/(?:experimental\/)?session|session)\/([^/]+)(?:\/|$)/)
-  if (!match || match[1] === "active" || match[1] === "import") return null
+  if (!match || ["active", "import", "search", "status"].includes(match[1]!)) return null
   return match[1]
 }
 
@@ -1334,17 +1334,18 @@ function isAllowedInstanceApiRoute(method: string, pathname: string): boolean {
     // OMP Live compatibility routes used by the Svelte client. Keep this list
     // explicit: the workspace proxy must never become an unrestricted tunnel.
     ["GET", /^\/(?:global\/event|event)$/],
-    ["GET", /^\/(?:global\/health|config(?:\/providers)?|experimental\/workspace|path|profile|project(?:\/current)?|file(?:\/content|\/status)?|find\/file|lsp|agent|command|provider(?:\/auth)?|session(?:\/status)?|permission|question|mcp)$/],
+    ["GET", /^\/(?:global\/health|config(?:\/providers)?|experimental\/workspace|path|profile|project(?:\/current)?|file(?:\/content|\/status|\/raw)?|find\/file|lsp|agent|command|provider(?:\/auth)?|session(?:\/(?:status|search))?|permission|question|mcp)$/],
     ["PATCH", /^\/(?:config|project\/[^/]+)$/],
-    ["PUT", /^\/auth\/[^/]+$/],
+		["PUT", /^\/auth\/[^/]+$/],
+		["PUT", /^\/file\/content$/],
     ["DELETE", /^\/auth\/[^/]+$/],
     ["POST", /^\/provider\/[^/]+\/oauth\/(?:authorize|callback)$/],
     ["POST", /^\/session$/],
-    ["GET", /^\/session\/[^/]+(?:\/(?:children|diff|todo|message(?:\/[^/]+)?|hub\/(?:snapshot|history|channels)))?$/],
+    ["GET", /^\/session\/[^/]+(?:\/(?:children|diff|todo|message(?:\/[^/]+)?|blob\/[0-9a-f]{64}|hub\/(?:snapshot|history|channels)))?$/],
     ["PATCH", /^\/session\/[^/]+(?:\/message\/[^/]+\/part\/[^/]+)?$/],
     ["PUT", /^\/session\/[^/]+\/todo$/],
     ["DELETE", /^\/session\/[^/]+(?:\/message\/[^/]+(?:\/part\/[^/]+)?|\/share)?$/],
-    ["POST", /^\/session\/[^/]+\/(?:resume|stop|message|fork|fork-profile|summarize|shell|command|abort|init|share|prompt_async)$/],
+    ["POST", /^\/session\/[^/]+\/(?:resume|reconnect|stop|message|fork|fork-profile|summarize|shell|command|abort|init|share|prompt_async)$/],
     ["POST", /^\/session\/[^/]+\/revert\/(?:stage|clear)$/],
     ["POST", /^\/session\/[^/]+\/hub\/(?:read|send|channels)$/],
     ["POST", /^\/session\/[^/]+\/hub\/channels\/[^/]+\/(?:join|leave)$/],
