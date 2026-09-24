@@ -175,6 +175,7 @@ describe("instance proxy location enforcement", () => {
       ["GET", "/workspaces/workspace/instance/profile", "/profile"],
       ["GET", "/workspaces/workspace/instance/global/event?directory=%2Frepo", "/global/event"],
       ["GET", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
+      ["GET", "/workspaces/workspace/instance/session/session/system-prompt", "/session/session/system-prompt"],
       ["PUT", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
       ["POST", "/workspaces/workspace/instance/session/session/hub/send", "/session/session/hub/send"],
       ["POST", "/workspaces/workspace/instance/session/session/fork", "/session/session/fork"],
