@@ -1332,7 +1332,7 @@ function isAllowedInstanceApiRoute(method: string, pathname: string): boolean {
     ["DELETE", /^\/auth\/[^/]+$/],
     ["POST", /^\/provider\/[^/]+\/oauth\/(?:authorize|callback)$/],
     ["POST", /^\/session$/],
-    ["GET", /^\/session\/[^/]+(?:\/(?:children|diff|todo|message(?:\/[^/]+)?|hub\/(?:snapshot|history|channels)))?$/],
+    ["GET", /^\/session\/[^/]+(?:\/(?:children|diff|todo|system-prompt|message(?:\/[^/]+)?|hub\/(?:snapshot|history|channels)))?$/],
     ["PATCH", /^\/session\/[^/]+(?:\/message\/[^/]+\/part\/[^/]+)?$/],
     ["PUT", /^\/session\/[^/]+\/todo$/],
     ["DELETE", /^\/session\/[^/]+(?:\/message\/[^/]+(?:\/part\/[^/]+)?|\/share)?$/],

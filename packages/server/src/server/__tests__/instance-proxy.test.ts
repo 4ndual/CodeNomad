@@ -174,6 +174,7 @@ describe("instance proxy location enforcement", () => {
     for (const [method, url, upstreamPath] of [
       ["GET", "/workspaces/workspace/instance/profile", "/profile"],
       ["GET", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
+      ["GET", "/workspaces/workspace/instance/session/session/system-prompt", "/session/session/system-prompt"],
       ["PUT", "/workspaces/workspace/instance/session/session/todo", "/session/session/todo"],
       ["POST", "/workspaces/workspace/instance/session/session/hub/send", "/session/session/hub/send"],
       ["POST", "/workspaces/workspace/instance/session/session/fork", "/session/session/fork"],
