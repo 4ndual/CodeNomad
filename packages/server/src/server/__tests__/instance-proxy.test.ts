@@ -173,6 +173,15 @@ async function harness(
 }
 
 describe("instance proxy location enforcement", () => {
+  it("forwards read-only OMP telemetry and its child query through the workspace route", async () => {
+    const { app, requestCount } = await harness()
+    const response = await app.inject({ method: "GET",
+      url: "/workspaces/workspace/instance/session/session/telemetry?includeChildren=true" })
+    assert.equal(response.statusCode, 200)
+    assert.equal(response.json().url, "/session/session/telemetry?includeChildren=true")
+    assert.equal(requestCount(), 1)
+  })
+
   it("forwards side generation for an owned busy session without mutating its environment", async () => {
     const { app, manager, sessionGets, requestCount } = await harness("/repo/worktree", { owned: { type: "running" } })
     manager.getSessionEnvironment = async () => { throw new Error("Side generation must not replace the session environment") }
